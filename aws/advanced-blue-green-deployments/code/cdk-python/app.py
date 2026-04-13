@@ -46,7 +46,7 @@ from constructs import Construct
 class AdvancedBlueGreenDeploymentStack(Stack):
     """
     Advanced Blue-Green Deployment Stack
-    
+
     Creates a comprehensive blue-green deployment infrastructure supporting
     both ECS and Lambda with automated rollback and monitoring capabilities.
     """
@@ -57,7 +57,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         # Stack parameters
         self.project_name = self.node.try_get_context("project_name") or "advanced-deployment"
         self.environment_name = self.node.try_get_context("environment") or "production"
-        
+
         # Create core infrastructure
         self._create_vpc_infrastructure()
         self._create_security_groups()
@@ -69,7 +69,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         self._create_codedeploy_applications()
         self._create_monitoring_and_alarms()
         self._create_deployment_hooks()
-        
+
         # Add stack-level tags
         Tags.of(self).add("Project", self.project_name)
         Tags.of(self).add("Environment", self.environment_name)
@@ -78,7 +78,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
     def _create_vpc_infrastructure(self) -> None:
         """Create VPC with public and private subnets for multi-AZ deployment."""
         self.vpc = ec2.Vpc(
-            self, "VPC",
+            self,
+            "VPC",
             vpc_name=f"{self.project_name}-vpc",
             ip_addresses=ec2.IpAddresses.cidr("10.0.0.0/16"),
             max_azs=2,
@@ -100,7 +101,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # VPC Flow Logs for security monitoring
         vpc_flow_logs_role = iam.Role(
-            self, "VPCFlowLogsRole",
+            self,
+            "VPCFlowLogsRole",
             assumed_by=iam.ServicePrincipal("vpc-flow-logs.amazonaws.com"),
             inline_policies={
                 "FlowLogsPolicy": iam.PolicyDocument(
@@ -122,11 +124,13 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         )
 
         vpc_flow_logs = ec2.FlowLog(
-            self, "VPCFlowLogs",
+            self,
+            "VPCFlowLogs",
             resource_type=ec2.FlowLogResourceType.from_vpc(self.vpc),
             destination=ec2.FlowLogDestination.to_cloud_watch_logs(
                 logs.LogGroup(
-                    self, "VPCFlowLogsGroup",
+                    self,
+                    "VPCFlowLogsGroup",
                     log_group_name=f"/aws/vpc/flowlogs/{self.project_name}",
                     retention=logs.RetentionDays.ONE_WEEK,
                     removal_policy=RemovalPolicy.DESTROY,
@@ -139,18 +143,19 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         """Create security groups with least privilege access."""
         # ALB Security Group
         self.alb_security_group = ec2.SecurityGroup(
-            self, "ALBSecurityGroup",
+            self,
+            "ALBSecurityGroup",
             vpc=self.vpc,
             description="Security group for Application Load Balancer",
             security_group_name=f"{self.project_name}-alb-sg",
         )
-        
+
         self.alb_security_group.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(80),
             description="Allow HTTP traffic",
         )
-        
+
         self.alb_security_group.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(443),
@@ -159,12 +164,13 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # ECS Security Group
         self.ecs_security_group = ec2.SecurityGroup(
-            self, "ECSSecurityGroup",
+            self,
+            "ECSSecurityGroup",
             vpc=self.vpc,
             description="Security group for ECS tasks",
             security_group_name=f"{self.project_name}-ecs-sg",
         )
-        
+
         self.ecs_security_group.add_ingress_rule(
             peer=ec2.Peer.security_group_id(self.alb_security_group.security_group_id),
             connection=ec2.Port.tcp(8080),
@@ -173,7 +179,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # Lambda Security Group
         self.lambda_security_group = ec2.SecurityGroup(
-            self, "LambdaSecurityGroup",
+            self,
+            "LambdaSecurityGroup",
             vpc=self.vpc,
             description="Security group for Lambda functions",
             security_group_name=f"{self.project_name}-lambda-sg",
@@ -183,7 +190,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         """Create IAM roles with least privilege permissions."""
         # ECS Task Execution Role
         self.ecs_execution_role = iam.Role(
-            self, "ECSExecutionRole",
+            self,
+            "ECSExecutionRole",
             role_name=f"{self.project_name}-ecs-execution-role",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             managed_policies=[
@@ -195,7 +203,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # ECS Task Role
         self.ecs_task_role = iam.Role(
-            self, "ECSTaskRole",
+            self,
+            "ECSTaskRole",
             role_name=f"{self.project_name}-ecs-task-role",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             inline_policies={
@@ -217,7 +226,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # Lambda Execution Role
         self.lambda_execution_role = iam.Role(
-            self, "LambdaExecutionRole",
+            self,
+            "LambdaExecutionRole",
             role_name=f"{self.project_name}-lambda-execution-role",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -232,7 +242,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # CodeDeploy Service Role
         self.codedeploy_role = iam.Role(
-            self, "CodeDeployRole",
+            self,
+            "CodeDeployRole",
             role_name=f"{self.project_name}-codedeploy-role",
             assumed_by=iam.ServicePrincipal("codedeploy.amazonaws.com"),
             managed_policies=[
@@ -247,7 +258,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # Deployment Hooks Lambda Role
         self.hooks_lambda_role = iam.Role(
-            self, "HooksLambdaRole",
+            self,
+            "HooksLambdaRole",
             role_name=f"{self.project_name}-hooks-lambda-role",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -277,7 +289,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
     def _create_ecr_repository(self) -> None:
         """Create ECR repository for container images."""
         self.ecr_repository = ecr.Repository(
-            self, "ECRRepository",
+            self,
+            "ECRRepository",
             repository_name=f"{self.project_name}-web-app",
             image_scan_on_push=True,
             lifecycle_rules=[
@@ -294,7 +307,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         """Create Application Load Balancer with blue/green target groups."""
         # Application Load Balancer
         self.alb = elbv2.ApplicationLoadBalancer(
-            self, "ApplicationLoadBalancer",
+            self,
+            "ApplicationLoadBalancer",
             load_balancer_name=f"{self.project_name}-alb",
             vpc=self.vpc,
             internet_facing=True,
@@ -303,7 +317,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # Blue Target Group
         self.target_group_blue = elbv2.ApplicationTargetGroup(
-            self, "TargetGroupBlue",
+            self,
+            "TargetGroupBlue",
             target_group_name=f"{self.project_name}-blue-tg",
             port=8080,
             protocol=elbv2.ApplicationProtocol.HTTP,
@@ -324,7 +339,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # Green Target Group
         self.target_group_green = elbv2.ApplicationTargetGroup(
-            self, "TargetGroupGreen",
+            self,
+            "TargetGroupGreen",
             target_group_name=f"{self.project_name}-green-tg",
             port=8080,
             protocol=elbv2.ApplicationProtocol.HTTP,
@@ -357,7 +373,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         """Create ECS cluster and service for blue-green deployments."""
         # ECS Cluster
         self.ecs_cluster = ecs.Cluster(
-            self, "ECSCluster",
+            self,
+            "ECSCluster",
             cluster_name=f"{self.project_name}-cluster",
             vpc=self.vpc,
             container_insights=True,
@@ -365,7 +382,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # CloudWatch Log Group for ECS
         self.ecs_log_group = logs.LogGroup(
-            self, "ECSLogGroup",
+            self,
+            "ECSLogGroup",
             log_group_name=f"/ecs/{self.project_name}",
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
@@ -373,7 +391,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # ECS Task Definition
         self.ecs_task_definition = ecs.FargateTaskDefinition(
-            self, "ECSTaskDefinition",
+            self,
+            "ECSTaskDefinition",
             family=f"{self.project_name}-web-app",
             cpu=256,
             memory_limit_mib=512,
@@ -387,7 +406,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
             container_name="web-app",
             image=ecs.ContainerImage.from_ecr_repository(
                 repository=self.ecr_repository,
-                tag="1.0.0"
+                tag="1.0.0",
             ),
             port_mappings=[
                 ecs.PortMapping(
@@ -407,7 +426,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
             health_check=ecs.HealthCheck(
                 command=[
                     "CMD-SHELL",
-                    "curl -f http://localhost:8080/health || exit 1"
+                    "curl -f http://localhost:8080/health || exit 1",
                 ],
                 interval=Duration.seconds(30),
                 timeout=Duration.seconds(5),
@@ -418,7 +437,8 @@ class AdvancedBlueGreenDeploymentStack(Stack):
 
         # ECS Service
         self.ecs_service = ecs.FargateService(
-            self, "ECSService",
+            self,
+            "ECSService",
             service_name=f"{self.project_name}-service",
             cluster=self.ecs_cluster,
             task_definition=self.ecs_task_definition,
@@ -460,7 +480,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
     def _create_lambda_infrastructure(self) -> None:
         """Create Lambda function with versioning and aliases."""
         # Lambda function code (inline for demo purposes)
-        lambda_code = '''
+        lambda_code = """
 import json
 import os
 import random
@@ -534,11 +554,12 @@ def home_response(version, environment):
             'timestamp': datetime.utcnow().isoformat()
         })
     }
-        '''
+        """
 
         # Lambda Function
         self.lambda_function = lambda_.Function(
-            self, "LambdaFunction",
+            self,
+            "LambdaFunction",
             function_name=f"{self.project_name}-api-function",
             runtime=lambda_.Runtime.PYTHON_3_9,
             handler="index.lambda_handler",
@@ -560,7 +581,8 @@ def home_response(version, environment):
 
         # Lambda Alias for production traffic
         self.lambda_alias = lambda_.Alias(
-            self, "LambdaAlias",
+            self,
+            "LambdaAlias",
             alias_name="PROD",
             version=self.lambda_function.current_version,
             description="Production alias for blue-green deployments",
@@ -570,13 +592,15 @@ def home_response(version, environment):
         """Create CodeDeploy applications for ECS and Lambda."""
         # CodeDeploy Application for ECS
         self.codedeploy_ecs_app = codedeploy.EcsApplication(
-            self, "CodeDeployECSApp",
+            self,
+            "CodeDeployECSApp",
             application_name=f"{self.project_name}-ecs-app",
         )
 
         # CodeDeploy Deployment Group for ECS
         self.codedeploy_ecs_deployment_group = codedeploy.EcsDeploymentGroup(
-            self, "CodeDeployECSDeploymentGroup",
+            self,
+            "CodeDeployECSDeploymentGroup",
             application=self.codedeploy_ecs_app,
             deployment_group_name=f"{self.project_name}-ecs-dg",
             service=self.ecs_service,
@@ -598,13 +622,15 @@ def home_response(version, environment):
 
         # CodeDeploy Application for Lambda
         self.codedeploy_lambda_app = codedeploy.LambdaApplication(
-            self, "CodeDeployLambdaApp",
+            self,
+            "CodeDeployLambdaApp",
             application_name=f"{self.project_name}-lambda-app",
         )
 
         # CodeDeploy Deployment Group for Lambda
         self.codedeploy_lambda_deployment_group = codedeploy.LambdaDeploymentGroup(
-            self, "CodeDeployLambdaDeploymentGroup",
+            self,
+            "CodeDeployLambdaDeploymentGroup",
             application=self.codedeploy_lambda_app,
             deployment_group_name=f"{self.project_name}-lambda-dg",
             alias=self.lambda_alias,
@@ -621,14 +647,16 @@ def home_response(version, environment):
         """Create comprehensive monitoring and alarm system."""
         # SNS Topic for notifications
         self.sns_topic = sns.Topic(
-            self, "DeploymentNotifications",
+            self,
+            "DeploymentNotifications",
             topic_name=f"{self.project_name}-notifications",
             display_name="Blue-Green Deployment Notifications",
         )
 
         # CloudWatch Alarms for ECS Service
         self.ecs_high_error_alarm = cloudwatch.Alarm(
-            self, "ECSHighErrorRate",
+            self,
+            "ECSHighErrorRate",
             alarm_name=f"{self.project_name}-ecs-high-error-rate",
             alarm_description="High error rate in ECS service",
             metric=cloudwatch.Metric(
@@ -647,7 +675,8 @@ def home_response(version, environment):
         )
 
         self.ecs_high_latency_alarm = cloudwatch.Alarm(
-            self, "ECSHighLatency",
+            self,
+            "ECSHighLatency",
             alarm_name=f"{self.project_name}-ecs-high-latency",
             alarm_description="High response time in ECS service",
             metric=cloudwatch.Metric(
@@ -667,7 +696,8 @@ def home_response(version, environment):
 
         # CloudWatch Alarms for Lambda Function
         self.lambda_error_alarm = cloudwatch.Alarm(
-            self, "LambdaHighErrorRate",
+            self,
+            "LambdaHighErrorRate",
             alarm_name=f"{self.project_name}-lambda-high-error-rate",
             alarm_description="High error rate in Lambda function",
             metric=self.lambda_function.metric_errors(
@@ -680,7 +710,8 @@ def home_response(version, environment):
         )
 
         self.lambda_duration_alarm = cloudwatch.Alarm(
-            self, "LambdaHighDuration",
+            self,
+            "LambdaHighDuration",
             alarm_name=f"{self.project_name}-lambda-high-duration",
             alarm_description="High duration in Lambda function",
             metric=self.lambda_function.metric_duration(
@@ -715,7 +746,7 @@ def home_response(version, environment):
     def _create_deployment_hooks(self) -> None:
         """Create pre and post deployment validation hooks."""
         # Pre-deployment validation hook
-        pre_deployment_code = '''
+        pre_deployment_code = """
 import json
 import boto3
 import logging
@@ -751,10 +782,11 @@ def lambda_handler(event, context):
 def validate_deployment_readiness(event):
     # Implement your validation logic here
     return {'success': True, 'reason': 'All checks passed'}
-        '''
+        """
 
         self.pre_deployment_hook = lambda_.Function(
-            self, "PreDeploymentHook",
+            self,
+            "PreDeploymentHook",
             function_name=f"{self.project_name}-pre-deployment-hook",
             runtime=lambda_.Runtime.PYTHON_3_9,
             handler="index.lambda_handler",
@@ -765,7 +797,7 @@ def validate_deployment_readiness(event):
         )
 
         # Post-deployment validation hook
-        post_deployment_code = '''
+        post_deployment_code = """
 import json
 import boto3
 import logging
@@ -818,10 +850,11 @@ def lambda_handler(event, context):
 def validate_deployment_success(event):
     # Implement your validation logic here
     return {'success': True, 'reason': 'All tests passed'}
-        '''
+        """
 
         self.post_deployment_hook = lambda_.Function(
-            self, "PostDeploymentHook",
+            self,
+            "PostDeploymentHook",
             function_name=f"{self.project_name}-post-deployment-hook",
             runtime=lambda_.Runtime.PYTHON_3_9,
             handler="index.lambda_handler",
@@ -855,7 +888,8 @@ def validate_deployment_success(event):
         """Create CloudFormation outputs for key resources."""
         # VPC and Networking
         CfnOutput(
-            self, "VPCId",
+            self,
+            "VPCId",
             value=self.vpc.vpc_id,
             description="VPC ID for the blue-green deployment infrastructure",
             export_name=f"{self.project_name}-vpc-id",
@@ -863,7 +897,8 @@ def validate_deployment_success(event):
 
         # Load Balancer
         CfnOutput(
-            self, "ALBDNSName",
+            self,
+            "ALBDNSName",
             value=self.alb.load_balancer_dns_name,
             description="DNS name of the Application Load Balancer",
             export_name=f"{self.project_name}-alb-dns",
@@ -871,7 +906,8 @@ def validate_deployment_success(event):
 
         # ECR Repository
         CfnOutput(
-            self, "ECRRepositoryURI",
+            self,
+            "ECRRepositoryURI",
             value=self.ecr_repository.repository_uri,
             description="ECR repository URI for container images",
             export_name=f"{self.project_name}-ecr-uri",
@@ -879,14 +915,16 @@ def validate_deployment_success(event):
 
         # ECS Resources
         CfnOutput(
-            self, "ECSClusterName",
+            self,
+            "ECSClusterName",
             value=self.ecs_cluster.cluster_name,
             description="Name of the ECS cluster",
             export_name=f"{self.project_name}-ecs-cluster",
         )
 
         CfnOutput(
-            self, "ECSServiceName",
+            self,
+            "ECSServiceName",
             value=self.ecs_service.service_name,
             description="Name of the ECS service",
             export_name=f"{self.project_name}-ecs-service",
@@ -894,14 +932,16 @@ def validate_deployment_success(event):
 
         # Lambda Resources
         CfnOutput(
-            self, "LambdaFunctionName",
+            self,
+            "LambdaFunctionName",
             value=self.lambda_function.function_name,
             description="Name of the Lambda function",
             export_name=f"{self.project_name}-lambda-function",
         )
 
         CfnOutput(
-            self, "LambdaAliasArn",
+            self,
+            "LambdaAliasArn",
             value=self.lambda_alias.alias_arn,
             description="ARN of the Lambda production alias",
             export_name=f"{self.project_name}-lambda-alias-arn",
@@ -909,14 +949,16 @@ def validate_deployment_success(event):
 
         # CodeDeploy Applications
         CfnOutput(
-            self, "CodeDeployECSAppName",
+            self,
+            "CodeDeployECSAppName",
             value=self.codedeploy_ecs_app.application_name,
             description="Name of the CodeDeploy ECS application",
             export_name=f"{self.project_name}-codedeploy-ecs-app",
         )
 
         CfnOutput(
-            self, "CodeDeployLambdaAppName",
+            self,
+            "CodeDeployLambdaAppName",
             value=self.codedeploy_lambda_app.application_name,
             description="Name of the CodeDeploy Lambda application",
             export_name=f"{self.project_name}-codedeploy-lambda-app",
@@ -924,7 +966,8 @@ def validate_deployment_success(event):
 
         # Monitoring
         CfnOutput(
-            self, "SNSTopicArn",
+            self,
+            "SNSTopicArn",
             value=self.sns_topic.topic_arn,
             description="ARN of the SNS topic for deployment notifications",
             export_name=f"{self.project_name}-sns-topic-arn",
@@ -934,13 +977,13 @@ def validate_deployment_success(event):
 def main():
     """Main application entry point."""
     app = App()
-    
+
     # Get environment configuration
     env = Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
         region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
     )
-    
+
     # Create the stack
     stack = AdvancedBlueGreenDeploymentStack(
         app,
@@ -948,10 +991,10 @@ def main():
         env=env,
         description="Advanced Blue-Green Deployments with ECS, Lambda, and CodeDeploy",
     )
-    
+
     # Create outputs
     stack._create_outputs()
-    
+
     # Synthesize the app
     app.synth()
 

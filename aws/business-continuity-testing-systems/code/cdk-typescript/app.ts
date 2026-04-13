@@ -134,8 +134,7 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
         'cloudwatch:*',
         'sns:*',
         'logs:*',
-        'backup:*',
-        'iam:PassRole'
+        'backup:*'
       ],
       resources: ['*']
     }));

@@ -34,10 +34,11 @@ class ServiceCatalogPortfolioStack(Stack):
 
         # Generate unique suffix for resource names
         unique_suffix = self.node.addr[-8:].lower()
-        
+
         # Create S3 bucket for CloudFormation templates
         template_bucket = s3.Bucket(
-            self, "TemplateBucket",
+            self,
+            "TemplateBucket",
             bucket_name=f"service-catalog-templates-{unique_suffix}",
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
@@ -51,7 +52,8 @@ class ServiceCatalogPortfolioStack(Stack):
 
         # Create Service Catalog portfolio
         portfolio = servicecatalog.Portfolio(
-            self, "Portfolio",
+            self,
+            "Portfolio",
             display_name=f"enterprise-infrastructure-{unique_suffix}",
             description="Enterprise infrastructure templates for development teams",
             provider_name="IT Infrastructure Team",
@@ -70,14 +72,16 @@ class ServiceCatalogPortfolioStack(Stack):
 
         # Apply launch constraints
         servicecatalog.CfnLaunchRoleConstraint(
-            self, "S3LaunchConstraint",
+            self,
+            "S3LaunchConstraint",
             portfolio_id=portfolio.portfolio_id,
             product_id=s3_product.product_id,
             role_arn=launch_role.role_arn,
         )
 
         servicecatalog.CfnLaunchRoleConstraint(
-            self, "LambdaLaunchConstraint",
+            self,
+            "LambdaLaunchConstraint",
             portfolio_id=portfolio.portfolio_id,
             product_id=lambda_product.product_id,
             role_arn=launch_role.role_arn,
@@ -88,37 +92,43 @@ class ServiceCatalogPortfolioStack(Stack):
 
         # Outputs
         CfnOutput(
-            self, "PortfolioId",
+            self,
+            "PortfolioId",
             value=portfolio.portfolio_id,
             description="Service Catalog Portfolio ID",
         )
 
         CfnOutput(
-            self, "PortfolioName",
+            self,
+            "PortfolioName",
             value=portfolio.display_name,
             description="Service Catalog Portfolio Name",
         )
 
         CfnOutput(
-            self, "S3ProductId",
+            self,
+            "S3ProductId",
             value=s3_product.product_id,
             description="S3 Bucket Product ID",
         )
 
         CfnOutput(
-            self, "LambdaProductId",
+            self,
+            "LambdaProductId",
             value=lambda_product.product_id,
             description="Lambda Function Product ID",
         )
 
         CfnOutput(
-            self, "LaunchRoleArn",
+            self,
+            "LaunchRoleArn",
             value=launch_role.role_arn,
             description="Launch Role ARN for Service Catalog constraints",
         )
 
         CfnOutput(
-            self, "TemplateBucketName",
+            self,
+            "TemplateBucketName",
             value=template_bucket.bucket_name,
             description="S3 bucket containing CloudFormation templates",
         )
@@ -126,20 +136,21 @@ class ServiceCatalogPortfolioStack(Stack):
     def _deploy_templates(self, bucket: s3.Bucket, suffix: str) -> None:
         """
         Deploy CloudFormation templates to S3 bucket for Service Catalog products.
-        
+
         Args:
             bucket: S3 bucket to store templates
             suffix: Unique suffix for resource naming
         """
         # S3 Bucket CloudFormation Template
         s3_template = self._get_s3_template()
-        
+
         # Lambda Function CloudFormation Template
         lambda_template = self._get_lambda_template()
 
         # Deploy templates to S3
         s3deploy.BucketDeployment(
-            self, "TemplateDeployment",
+            self,
+            "TemplateDeployment",
             sources=[
                 s3deploy.Source.data("s3-bucket-template.yaml", s3_template),
                 s3deploy.Source.data("lambda-function-template.yaml", lambda_template),
@@ -150,21 +161,32 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_launch_role(self, suffix: str) -> iam.Role:
         """
         Create IAM role for Service Catalog launch constraints.
-        
+
         Args:
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             IAM role for launch constraints
         """
         launch_role = iam.Role(
-            self, "LaunchRole",
+            self,
+            "LaunchRole",
             role_name=f"ServiceCatalogLaunchRole-{suffix}",
             assumed_by=iam.ServicePrincipal("servicecatalog.amazonaws.com"),
             description="IAM role for Service Catalog product launch constraints",
         )
 
-        # Create inline policy with necessary permissions
+        # Restrict permissions to avoid privilege escalation via overly broad resource access.
+        # Note: Service Catalog/CloudFormation may still require some IAM actions; we avoid
+        # granting all actions on all resources.
+        allowed_s3_bucket_arns = [
+            f"arn:aws:s3:::{'*'}"  # placeholder to keep structure; replaced below
+        ]
+
+        # Since the templates accept user-provided names, we restrict to buckets created
+        # by this portfolio by requiring a tag. This reduces privilege escalation risk.
+        # The templates include Tags: ManagedBy=ServiceCatalog and Environment=...
+        # We scope S3 and Lambda/IAM actions to resources that carry the expected tag.
         launch_policy = iam.PolicyDocument(
             statements=[
                 iam.PolicyStatement(
@@ -178,6 +200,15 @@ class ServiceCatalogPortfolioStack(Stack):
                         "s3:PutBucketTagging",
                         "s3:GetBucketLocation",
                         "s3:ListBucket",
+                    ],
+                    resources=["*"],
+                    conditions={
+                        "StringEquals": {"aws:ResourceTag/ManagedBy": "ServiceCatalog"}
+                    },
+                ),
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
                         "lambda:CreateFunction",
                         "lambda:DeleteFunction",
                         "lambda:UpdateFunctionCode",
@@ -186,6 +217,15 @@ class ServiceCatalogPortfolioStack(Stack):
                         "lambda:UntagResource",
                         "lambda:GetFunction",
                         "lambda:ListTags",
+                    ],
+                    resources=["*"],
+                    conditions={
+                        "StringEquals": {"aws:ResourceTag/ManagedBy": "ServiceCatalog"}
+                    },
+                ),
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
                         "iam:CreateRole",
                         "iam:DeleteRole",
                         "iam:AttachRolePolicy",
@@ -198,32 +238,39 @@ class ServiceCatalogPortfolioStack(Stack):
                         "iam:ListAttachedRolePolicies",
                     ],
                     resources=["*"],
-                )
+                    conditions={
+                        "StringEquals": {"aws:ResourceTag/ManagedBy": "ServiceCatalog"}
+                    },
+                ),
             ]
         )
 
         launch_role.attach_inline_policy(
             iam.Policy(
-                self, "LaunchPolicy",
+                self,
+                "LaunchPolicy",
                 document=launch_policy,
             )
         )
 
         return launch_role
 
-    def _create_s3_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
+    def _create_s3_product(
+        self, bucket: s3.Bucket, suffix: str
+    ) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for S3 bucket deployment.
-        
+
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             Service Catalog CloudFormation product
         """
         return servicecatalog.CloudFormationProduct(
-            self, "S3Product",
+            self,
+            "S3Product",
             product_name=f"managed-s3-bucket-{suffix}",
             description="Managed S3 bucket with security best practices",
             owner="IT Infrastructure Team",
@@ -238,19 +285,22 @@ class ServiceCatalogPortfolioStack(Stack):
             ],
         )
 
-    def _create_lambda_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
+    def _create_lambda_product(
+        self, bucket: s3.Bucket, suffix: str
+    ) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for Lambda function deployment.
-        
+
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             Service Catalog CloudFormation product
         """
         return servicecatalog.CloudFormationProduct(
-            self, "LambdaProduct",
+            self,
+            "LambdaProduct",
             product_name=f"serverless-function-{suffix}",
             description="Managed Lambda function with IAM role and logging",
             owner="IT Infrastructure Team",
@@ -268,14 +318,15 @@ class ServiceCatalogPortfolioStack(Stack):
     def _grant_portfolio_access(self, portfolio: servicecatalog.Portfolio) -> None:
         """
         Grant portfolio access to the current AWS account root.
-        
+
         Args:
             portfolio: Service Catalog portfolio
         """
         # Grant access to the account root - in practice, you would grant access
         # to specific IAM users, groups, or roles
         servicecatalog.CfnPortfolioPrincipalAssociation(
-            self, "PortfolioAccess",
+            self,
+            "PortfolioAccess",
             portfolio_id=portfolio.portfolio_id,
             principal_arn=f"arn:aws:iam::{self.account}:root",
             principal_type="IAM",
@@ -284,7 +335,7 @@ class ServiceCatalogPortfolioStack(Stack):
     def _get_s3_template(self) -> str:
         """
         Get S3 bucket CloudFormation template content.
-        
+
         Returns:
             CloudFormation template as YAML string
         """
@@ -337,7 +388,7 @@ Outputs:
     def _get_lambda_template(self) -> str:
         """
         Get Lambda function CloudFormation template content.
-        
+
         Returns:
             CloudFormation template as YAML string
         """
@@ -415,7 +466,8 @@ app = cdk.App()
 
 # Create the Service Catalog Portfolio stack
 ServiceCatalogPortfolioStack(
-    app, "ServiceCatalogPortfolioStack",
+    app,
+    "ServiceCatalogPortfolioStack",
     description="AWS Service Catalog Portfolio with CloudFormation Templates",
     env=cdk.Environment(
         account=app.node.try_get_context("account"),

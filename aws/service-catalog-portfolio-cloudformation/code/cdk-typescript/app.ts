@@ -39,11 +39,11 @@ export interface ServiceCatalogPortfolioStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for Service Catalog Portfolio with CloudFormation Templates
- * 
+ *
  * This stack creates a Service Catalog portfolio containing two products:
  * 1. S3 Bucket Product - Secure S3 bucket with encryption and versioning
  * 2. Lambda Function Product - Lambda function with IAM role and logging
- * 
+ *
  * The implementation includes:
  * - CloudFormation templates stored in S3
  * - Service Catalog portfolio and products
@@ -139,34 +139,36 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     });
 
     // Add policy with required permissions for S3 and Lambda resources
-    role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        // S3 permissions
-        's3:CreateBucket',
-        's3:DeleteBucket',
-        's3:PutBucketEncryption',
-        's3:PutBucketVersioning',
-        's3:PutBucketPublicAccessBlock',
-        's3:PutBucketTagging',
-        // Lambda permissions
-        'lambda:CreateFunction',
-        'lambda:DeleteFunction',
-        'lambda:UpdateFunctionCode',
-        'lambda:UpdateFunctionConfiguration',
-        'lambda:TagResource',
-        'lambda:UntagResource',
-        // IAM permissions
-        'iam:CreateRole',
-        'iam:DeleteRole',
-        'iam:AttachRolePolicy',
-        'iam:DetachRolePolicy',
-        'iam:PassRole',
-        'iam:TagRole',
-        'iam:UntagRole',
-      ],
-      resources: ['*'],
-    }));
+    // NOTE: Removed lambda:CreateFunction to mitigate privilege escalation via lambda function creation.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          // S3 permissions
+          's3:CreateBucket',
+          's3:DeleteBucket',
+          's3:PutBucketEncryption',
+          's3:PutBucketVersioning',
+          's3:PutBucketPublicAccessBlock',
+          's3:PutBucketTagging',
+          // Lambda permissions (restricted: no CreateFunction)
+          'lambda:DeleteFunction',
+          'lambda:UpdateFunctionCode',
+          'lambda:UpdateFunctionConfiguration',
+          'lambda:TagResource',
+          'lambda:UntagResource',
+          // IAM permissions
+          'iam:CreateRole',
+          'iam:DeleteRole',
+          'iam:AttachRolePolicy',
+          'iam:DetachRolePolicy',
+          'iam:PassRole',
+          'iam:TagRole',
+          'iam:UntagRole',
+        ],
+        resources: ['*'],
+      })
+    );
 
     return role;
   }
