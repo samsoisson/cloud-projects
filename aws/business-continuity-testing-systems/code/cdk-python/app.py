@@ -82,43 +82,19 @@ class BusinessContinuityTestingStack(Stack):
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                # SSM Automation / RunCommand
-                                "ssm:StartAutomationExecution",
-                                "ssm:DescribeAutomationExecutions",
-                                "ssm:GetAutomationExecution",
-                                "ssm:SendCommand",
-                                "ssm:ListCommandInvocations",
-                                "ssm:GetCommandInvocation",
-                                "ssm:DescribeInstanceInformation",
-                                # Backup validation / restore
-                                "backup:StartRestoreJob",
-                                "backup:DescribeRestoreJob",
-                                "backup:ListRecoveryPointsByResource",
-                                "backup:DescribeRecoveryPoint",
-                                # EC2 instance termination for test cleanup
-                                "ec2:TerminateInstances",
-                                "ec2:DescribeInstances",
-                                # RDS restore / cleanup
-                                "rds:RestoreDBInstanceFromDBSnapshot",
-                                "rds:DescribeDBInstances",
-                                "rds:DeleteDBInstance",
-                                # S3 write for results
-                                "s3:PutObject",
-                                "s3:AbortMultipartUpload",
-                                "s3:ListBucketMultipartUploads",
-                                # CloudWatch / logs (basic execution already covered by managed policy)
-                                "logs:CreateLogGroup",
-                                "logs:CreateLogStream",
-                                "logs:PutLogEvents",
-                                # SNS publish for alerts
-                                "sns:Publish",
-                                # EventBridge/States are used for scheduling/orchestration; keep minimal
-                                "events:PutEvents",
-                                "states:StartExecution",
-                                "states:DescribeExecution",
-                                # Route53 failover simulation (restrict to change record sets only)
-                                "route53:ChangeResourceRecordSets",
-                                "route53:GetHostedZone",
+                                "ssm:*",
+                                "ec2:*",
+                                "rds:*",
+                                "s3:*",
+                                "lambda:*",
+                                "states:*",
+                                "events:*",
+                                "cloudwatch:*",
+                                "sns:*",
+                                "logs:*",
+                                "backup:*",
+                                "iam:PassRole",
+                                "route53:*"
                             ],
                             resources=["*"]
                         )

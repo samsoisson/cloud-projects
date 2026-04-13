@@ -22,7 +22,7 @@ interface TrafficAnalyticsStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for VPC Lattice Traffic Analytics with OpenSearch
- *
+ * 
  * This stack creates:
  * - OpenSearch Service domain for analytics
  * - Lambda function for log transformation
@@ -78,7 +78,6 @@ export class TrafficAnalyticsStack extends cdk.Stack {
         enabled: true,
       },
       enforceHttps: true,
-      tlsSecurityPolicy: 'Policy-Min-TLS-1-2-2019-07',
       logging: {
         slowSearchLogEnabled: true,
         appLogEnabled: true,
@@ -241,13 +240,20 @@ def categorize_response_time(response_time_ms):
             // Lambda permissions
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              actions: ['lambda:InvokeFunction', 'lambda:GetFunctionConfiguration'],
+              actions: [
+                'lambda:InvokeFunction',
+                'lambda:GetFunctionConfiguration',
+              ],
               resources: [transformFunction.functionArn],
             }),
             // CloudWatch Logs permissions
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+              actions: [
+                'logs:CreateLogGroup',
+                'logs:CreateLogStream',
+                'logs:PutLogEvents',
+              ],
               resources: ['*'],
             }),
           ],

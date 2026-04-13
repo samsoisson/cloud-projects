@@ -163,9 +163,6 @@ class QDeveloperInfrastructureStack(Stack):
             )
         )
         
-        # Restrict CloudFormation permissions to stacks created/managed by this system.
-        # This removes the overly-broad resource scope that could enable privilege escalation.
-        allowed_stack_arn_prefix = f"arn:aws:cloudformation:{self.region}:{self.account}:stack/q-developer-stack-*/*"
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -177,15 +174,23 @@ class QDeveloperInfrastructureStack(Stack):
                     "cloudformation:UpdateStack",
                     "cloudformation:DeleteStack"
                 ],
-                resources=[
-                    allowed_stack_arn_prefix
-                ]
+                resources=["*"]
             )
         )
         
-        # Removed overly-permissive IAM privilege escalation permissions (e.g., iam:PassRole/CreateRole/AttachRolePolicy)
-        # to prevent privilege escalation via IAM role manipulation.
-
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iam:PassRole",
+                    "iam:CreateRole",
+                    "iam:AttachRolePolicy",
+                    "iam:GetRole"
+                ],
+                resources=["*"]
+            )
+        )
+        
         return role
 
     def _create_template_processor_function(self, suffix: str) -> lambda_.Function:

@@ -48,45 +48,45 @@ cache_ttl = 300  # 5 minutes
 def get_secret(secret_name, use_cache=True):
     """
     Retrieve secret from Secret Manager with caching and error handling
-
+    
     Args:
         secret_name: Name of the secret to retrieve
         use_cache: Whether to use cached values
-
+        
     Returns:
         dict: Parsed secret data or None if error
     """
     try:
         current_time = time.time()
-
+        
         # Check cache first
         if use_cache and secret_name in secret_cache:
             cached_data, cached_time = secret_cache[secret_name]
             if current_time - cached_time < cache_ttl:
                 logger.debug(f"Using cached secret: {secret_name}")
                 return cached_data
-
+        
         if not client:
             logger.error("Secret Manager client not initialized")
             return None
-
+            
         # Construct the resource name
         name = f"projects/{PROJECT_ID}/secrets/{secret_name}/versions/latest"
-
+        
         # Access the secret version
         response = client.access_secret_version(request={"name": name})
         secret_data = response.payload.data.decode("UTF-8")
-
+        
         # Parse JSON data
         parsed_data = json.loads(secret_data)
-
+        
         # Update cache
         if use_cache:
             secret_cache[secret_name] = (parsed_data, current_time)
-
+            
         logger.info(f"Successfully retrieved secret: {secret_name}")
         return parsed_data
-
+        
     except GoogleAuthError as e:
         logger.error(f"Authentication error accessing secret {secret_name}: {e}")
         return None
@@ -101,24 +101,24 @@ def get_secret(secret_name, use_cache=True):
 def validate_api_key(auth_header, api_keys):
     """
     Validate API key from Authorization header
-
+    
     Args:
         auth_header: Authorization header value
         api_keys: Dictionary containing API keys
-
+        
     Returns:
         bool: True if valid, False otherwise
     """
     if not auth_header or not api_keys:
         return False
-
+        
     # Extract Bearer token
     if not auth_header.startswith('Bearer '):
         return False
-
+        
     token = auth_header[7:]  # Remove 'Bearer ' prefix
     expected_key = api_keys.get('external_api_key')
-
+    
     return token == expected_key
 
 
@@ -153,7 +153,7 @@ def health_check():
             "timestamp": time.time(),
             "version": "1.0.0"
         }
-
+        
         # Test Secret Manager connectivity
         if client:
             try:
@@ -165,9 +165,9 @@ def health_check():
                 health_status["secret_manager"] = "error"
         else:
             health_status["secret_manager"] = "not_initialized"
-
+            
         return jsonify(health_status), 200
-
+        
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return jsonify({
@@ -189,7 +189,7 @@ def get_configuration():
                 "error": "Configuration unavailable",
                 "message": "Unable to retrieve application configuration"
             }), 500
-
+        
         # Return only non-sensitive configuration
         safe_config = {
             "debug_mode": config.get("debug_mode", False),
@@ -200,9 +200,9 @@ def get_configuration():
             "environment": ENVIRONMENT,
             "retrieved_at": time.time()
         }
-
+        
         return jsonify(safe_config), 200
-
+        
     except Exception as e:
         logger.error(f"Failed to get configuration: {e}")
         return jsonify({
@@ -224,7 +224,7 @@ def database_status():
                 "error": "Database configuration unavailable",
                 "message": "Unable to retrieve database configuration"
             }), 500
-
+        
         # Return connection status (simulate database check)
         status_info = {
             "database": "connected",
@@ -235,9 +235,9 @@ def database_status():
             "connection_pool": "healthy",
             "last_check": time.time()
         }
-
+        
         return jsonify(status_info), 200
-
+        
     except Exception as e:
         logger.error(f"Database status check failed: {e}")
         return jsonify({
@@ -260,7 +260,7 @@ def get_secure_data():
                 "error": "API keys unavailable",
                 "message": "Unable to retrieve API keys for authentication"
             }), 500
-
+        
         # Validate Authorization header
         auth_header = request.headers.get('Authorization')
         if not validate_api_key(auth_header, api_keys):
@@ -268,7 +268,7 @@ def get_secure_data():
                 "error": "Unauthorized",
                 "message": "Invalid or missing API key"
             }), 401
-
+        
         # Return secure data
         secure_data = {
             "data": "sensitive_api_data",
@@ -278,10 +278,10 @@ def get_secure_data():
             "user_agent": request.headers.get('User-Agent', 'unknown'),
             "request_id": f"req_{int(time.time())}"
         }
-
+        
         logger.info("Secure data accessed successfully")
         return jsonify(secure_data), 200
-
+        
     except Exception as e:
         logger.error(f"Secure data access failed: {e}")
         return jsonify({
@@ -300,13 +300,13 @@ def rotate_secrets():
         # Clear the secret cache to force refresh
         global secret_cache
         secret_cache.clear()
-
+        
         logger.info("Secret cache cleared for rotation")
         return jsonify({
             "message": "Secret cache refreshed successfully",
             "timestamp": time.time()
         }), 200
-
+        
     except Exception as e:
         logger.error(f"Secret rotation failed: {e}")
         return jsonify({
@@ -328,9 +328,9 @@ def get_metrics():
             "secret_names": list(SECRET_NAMES.keys()),
             "client_initialized": client is not None
         }
-
+        
         return jsonify(metrics), 200
-
+        
     except Exception as e:
         logger.error(f"Metrics collection failed: {e}")
         return jsonify({
@@ -344,16 +344,13 @@ if __name__ == '__main__':
     logger.info(f"Starting Secure API application in {ENVIRONMENT} environment")
     logger.info(f"Project ID: {PROJECT_ID}")
     logger.info(f"Secret names configured: {list(SECRET_NAMES.keys())}")
-
+    
     # Get port from environment (Cloud Run provides PORT)
     port = int(os.environ.get('PORT', 8080))
-
-    # Avoid binding to all network interfaces by default
-    host = os.environ.get('HOST', '127.0.0.1')
-
+    
     # Run the application
     app.run(
-        host=host,
+        host='0.0.0.0',
         port=port,
         debug=(ENVIRONMENT == 'dev'),
         threaded=True

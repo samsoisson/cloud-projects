@@ -24,7 +24,7 @@ interface CanaryDeploymentStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for implementing progressive canary deployments using VPC Lattice and Lambda
- *
+ * 
  * This stack creates:
  * - Two Lambda function versions (production and canary)
  * - VPC Lattice service network and service for weighted routing
@@ -61,8 +61,12 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // NOTE: Removed broad lambda:InvokeFunction permission to prevent privilege escalation.
-    // VPC Lattice invoke permissions are granted via resource-based policies on the Lambda functions below.
+    // Add VPC Lattice invoke permissions
+    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: ['*'], // Will be restricted to specific functions after creation
+    }));
 
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
@@ -269,7 +273,7 @@ def handler(event, context):
       serviceIdentifier: this.latticeService.attrId,
     });
 
-    // Grant VPC Lattice permission to invoke Lambda functions (resource-based policy)
+    // Grant VPC Lattice permission to invoke Lambda functions
     this.productionFunction.addPermission('AllowVPCLatticeInvoke', {
       principal: new iam.ServicePrincipal('vpc-lattice.amazonaws.com'),
       action: 'lambda:InvokeFunction',
@@ -443,7 +447,7 @@ def handler(event, context):
       this.rollbackTopic.grantPublish(rollbackFunction);
 
       // Subscribe rollback function to all canary alarms
-      new sns.Subscription(this, 'RollbackSubscription', {
+      const rollbackSubscription = new sns.Subscription(this, 'RollbackSubscription', {
         topic: this.rollbackTopic,
         endpoint: rollbackFunction.functionArn,
         protocol: sns.SubscriptionProtocol.LAMBDA,
@@ -531,10 +535,10 @@ const stack = new CanaryDeploymentStack(app, 'CanaryDeploymentStack', {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
   },
-  canaryWeight: 10, // 10% traffic to canary
-  productionWeight: 90, // 90% traffic to production
+  canaryWeight: 10,      // 10% traffic to canary
+  productionWeight: 90,  // 90% traffic to production
   enableAutoRollback: true,
-
+  
   // Enable termination protection for production deployments
   terminationProtection: false, // Set to true for production
 });

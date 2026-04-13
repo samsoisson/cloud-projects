@@ -447,7 +447,7 @@ resource "aws_api_gateway_stage" "production_stage" {
 resource "aws_api_gateway_deployment" "staging_deployment" {
   depends_on = [
     aws_api_gateway_integration.blue_lambda_integration,
-    aws_api_gateway_permission.green_lambda_permission
+    aws_lambda_permission.green_lambda_permission
   ]
 
   rest_api_id = aws_api_gateway_rest_api.advanced_deployment_api.id

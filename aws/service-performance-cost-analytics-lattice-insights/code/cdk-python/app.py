@@ -43,18 +43,18 @@ class ServicePerformanceCostAnalyticsStack(Stack):
 
         # Generate unique suffix for resource names to avoid conflicts
         unique_suffix = self.node.try_get_context("unique_suffix") or "demo"
-
+        
         # Stack parameters
         service_network_name = f"analytics-mesh-{unique_suffix}"
         log_group_name = "/aws/vpclattice/performance-analytics"
-
+        
         # Create CloudWatch Log Group for VPC Lattice logs
         log_group = logs.LogGroup(
             self,
             "VpcLatticeLogGroup",
             log_group_name=log_group_name,
             retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.DESTROY
         )
 
         # Create IAM role for Lambda functions with comprehensive permissions
@@ -63,10 +63,8 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             "LambdaAnalyticsRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaBasicExecutionRole"
-                ),
-                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess")
             ],
             inline_policies={
                 "CostExplorerAnalyticsPolicy": iam.PolicyDocument(
@@ -80,9 +78,9 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "ce:ListCostCategoryDefinitions",
                                 "ce:GetUsageReport",
                                 "ce:GetAnomalyDetectors",
-                                "ce:GetAnomalySubscriptions",
+                                "ce:GetAnomalySubscriptions"
                             ],
-                            resources=["*"],
+                            resources=["*"]
                         ),
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
@@ -94,21 +92,13 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "vpc-lattice:GetServiceNetwork",
                                 "vpc-lattice:ListServices",
                                 "vpc-lattice:ListServiceNetworks",
-                                "lambda:InvokeFunction",
+                                "lambda:InvokeFunction"
                             ],
-                            # Restrict lambda invocation to functions created in this stack
-                            resources=[
-                                # PerformanceAnalyzer
-                                f"arn:aws:lambda:{self.region}:{self.account}:function:performance-analyzer-{unique_suffix}",
-                                # CostCorrelator
-                                f"arn:aws:lambda:{self.region}:{self.account}:function:cost-correlator-{unique_suffix}",
-                                # ReportGenerator
-                                f"arn:aws:lambda:{self.region}:{self.account}:function:report-generator-{unique_suffix}",
-                            ],
-                        ),
+                            resources=["*"]
+                        )
                     ]
                 )
-            },
+            }
         )
 
         # Create VPC Lattice Service Network
@@ -119,8 +109,8 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             auth_type="AWS_IAM",
             tags=[
                 cdk.CfnTag(key="Purpose", value="PerformanceCostAnalytics"),
-                cdk.CfnTag(key="Environment", value="Demo"),
-            ],
+                cdk.CfnTag(key="Environment", value="Demo")
+            ]
         )
 
         # Configure access logging for VPC Lattice
@@ -128,7 +118,7 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             self,
             "ServiceNetworkAccessLog",
             resource_identifier=service_network.attr_arn,
-            destination_arn=log_group.log_group_arn,
+            destination_arn=log_group.log_group_arn
         )
 
         # Create Performance Analyzer Lambda Function
@@ -138,8 +128,7 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             function_name=f"performance-analyzer-{unique_suffix}",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="index.lambda_handler",
-            code=lambda_.Code.from_inline(
-                """
+            code=lambda_.Code.from_inline("""
 import json
 import boto3
 import time
@@ -238,13 +227,14 @@ def lambda_handler(event, context):
                 'message': 'Performance analysis failed'
             })
         }
-            """
-            ),
+            """),
             role=lambda_role,
             timeout=Duration.seconds(90),
             memory_size=256,
-            environment={"LOG_GROUP_NAME": log_group_name},
-            description="Analyzes VPC Lattice performance metrics using CloudWatch Insights",
+            environment={
+                "LOG_GROUP_NAME": log_group_name
+            },
+            description="Analyzes VPC Lattice performance metrics using CloudWatch Insights"
         )
 
         # Create Cost Correlator Lambda Function
@@ -254,8 +244,7 @@ def lambda_handler(event, context):
             function_name=f"cost-correlator-{unique_suffix}",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="index.lambda_handler",
-            code=lambda_.Code.from_inline(
-                """
+            code=lambda_.Code.from_inline("""
 import json
 import boto3
 from datetime import datetime, timedelta
@@ -368,12 +357,11 @@ def lambda_handler(event, context):
                 'message': 'Cost correlation analysis failed'
             })
         }
-            """
-            ),
+            """),
             role=lambda_role,
             timeout=Duration.seconds(120),
             memory_size=512,
-            description="Correlates VPC Lattice performance with AWS costs",
+            description="Correlates VPC Lattice performance with AWS costs"
         )
 
         # Create Report Generator Lambda Function
@@ -383,8 +371,7 @@ def lambda_handler(event, context):
             function_name=f"report-generator-{unique_suffix}",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="index.lambda_handler",
-            code=lambda_.Code.from_inline(
-                f"""
+            code=lambda_.Code.from_inline(f"""
 import json
 import boto3
 from datetime import datetime
@@ -482,12 +469,11 @@ def lambda_handler(event, context):
                 'timestamp': datetime.now().isoformat()
             }})
         }}
-            """
-            ),
+            """),
             role=lambda_role,
             timeout=Duration.seconds(180),
             memory_size=256,
-            description="Orchestrates performance and cost analysis reporting",
+            description="Orchestrates performance and cost analysis reporting"
         )
 
         # Create EventBridge rule for scheduled analytics
@@ -497,16 +483,17 @@ def lambda_handler(event, context):
             rule_name=f"analytics-scheduler-{unique_suffix}",
             schedule=events.Schedule.rate(Duration.hours(6)),
             description="Trigger VPC Lattice performance cost analytics every 6 hours",
-            enabled=True,
+            enabled=True
         )
 
         # Add Lambda target to EventBridge rule
         analytics_rule.add_target(
             targets.LambdaFunction(
                 report_generator,
-                event=events.RuleTargetInput.from_object(
-                    {"suffix": unique_suffix, "log_group": log_group_name}
-                ),
+                event=events.RuleTargetInput.from_object({
+                    "suffix": unique_suffix,
+                    "log_group": log_group_name
+                })
             )
         )
 
@@ -517,8 +504,8 @@ def lambda_handler(event, context):
             name=f"sample-analytics-service-{unique_suffix}",
             tags=[
                 cdk.CfnTag(key="Purpose", value="AnalyticsDemo"),
-                cdk.CfnTag(key="CostCenter", value="Analytics"),
-            ],
+                cdk.CfnTag(key="CostCenter", value="Analytics")
+            ]
         )
 
         # Associate sample service with service network
@@ -527,7 +514,9 @@ def lambda_handler(event, context):
             "SampleServiceAssociation",
             service_network_identifier=service_network.attr_id,
             service_identifier=sample_service.attr_id,
-            tags=[cdk.CfnTag(key="Purpose", value="AnalyticsDemo")],
+            tags=[
+                cdk.CfnTag(key="Purpose", value="AnalyticsDemo")
+            ]
         )
 
         # Create CloudWatch Dashboard for performance cost analytics
@@ -543,15 +532,19 @@ def lambda_handler(event, context):
                             cloudwatch.Metric(
                                 namespace="AWS/VPCLattice",
                                 metric_name="NewConnectionCount",
-                                dimensions_map={"ServiceNetwork": service_network_name},
-                                statistic="Average",
+                                dimensions_map={
+                                    "ServiceNetwork": service_network_name
+                                },
+                                statistic="Average"
                             ),
                             cloudwatch.Metric(
                                 namespace="AWS/VPCLattice",
                                 metric_name="ActiveConnectionCount",
-                                dimensions_map={"ServiceNetwork": service_network_name},
-                                statistic="Average",
-                            ),
+                                dimensions_map={
+                                    "ServiceNetwork": service_network_name
+                                },
+                                statistic="Average"
+                            )
                         ],
                         right=[
                             cloudwatch.Metric(
@@ -560,12 +553,12 @@ def lambda_handler(event, context):
                                 dimensions_map={
                                     "ServiceName": f"sample-analytics-service-{unique_suffix}"
                                 },
-                                statistic="Average",
+                                statistic="Average"
                             )
                         ],
                         width=12,
                         height=6,
-                        period=Duration.minutes(5),
+                        period=Duration.minutes(5)
                     )
                 ],
                 [
@@ -576,13 +569,13 @@ def lambda_handler(event, context):
                             "fields @timestamp, targetService, responseTime, requestSize",
                             "| filter @message like /requestId/",
                             "| stats avg(responseTime) as avgResponseTime by targetService",
-                            "| sort avgResponseTime desc",
+                            "| sort avgResponseTime desc"
                         ],
                         width=24,
-                        height=6,
+                        height=6
                     )
-                ],
-            ],
+                ]
+            ]
         )
 
         # Stack Outputs
@@ -590,49 +583,49 @@ def lambda_handler(event, context):
             self,
             "ServiceNetworkId",
             value=service_network.attr_id,
-            description="VPC Lattice Service Network ID",
+            description="VPC Lattice Service Network ID"
         )
 
         cdk.CfnOutput(
             self,
             "ServiceNetworkArn",
             value=service_network.attr_arn,
-            description="VPC Lattice Service Network ARN",
+            description="VPC Lattice Service Network ARN"
         )
 
         cdk.CfnOutput(
             self,
             "PerformanceAnalyzerFunction",
             value=performance_analyzer.function_name,
-            description="Performance Analyzer Lambda Function Name",
+            description="Performance Analyzer Lambda Function Name"
         )
 
         cdk.CfnOutput(
             self,
             "CostCorrelatorFunction",
             value=cost_correlator.function_name,
-            description="Cost Correlator Lambda Function Name",
+            description="Cost Correlator Lambda Function Name"
         )
 
         cdk.CfnOutput(
             self,
             "ReportGeneratorFunction",
             value=report_generator.function_name,
-            description="Report Generator Lambda Function Name",
+            description="Report Generator Lambda Function Name"
         )
 
         cdk.CfnOutput(
             self,
             "CloudWatchDashboard",
             value=f"https://console.aws.amazon.com/cloudwatch/home?region={self.region}#dashboards:name={dashboard.dashboard_name}",
-            description="CloudWatch Dashboard URL",
+            description="CloudWatch Dashboard URL"
         )
 
         cdk.CfnOutput(
             self,
             "LogGroupName",
             value=log_group.log_group_name,
-            description="CloudWatch Log Group for VPC Lattice logs",
+            description="CloudWatch Log Group for VPC Lattice logs"
         )
 
 
@@ -642,13 +635,13 @@ app = cdk.App()
 unique_suffix = app.node.try_get_context("unique_suffix") or "demo"
 
 ServicePerformanceCostAnalyticsStack(
-    app,
+    app, 
     "ServicePerformanceCostAnalyticsStack",
     description="Service Performance Cost Analytics with VPC Lattice and CloudWatch Insights",
     env=cdk.Environment(
-        account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
-        region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
-    ),
+        account=os.environ.get('CDK_DEFAULT_ACCOUNT'),
+        region=os.environ.get('CDK_DEFAULT_REGION', 'us-east-1')
+    )
 )
 
 app.synth()

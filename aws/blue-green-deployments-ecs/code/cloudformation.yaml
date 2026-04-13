@@ -161,7 +161,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs '']
-      CidrBlock: !Sub
+      CidrBlock: !Sub 
         - '${VpcCidrPrefix}.1.0/24'
         - VpcCidrPrefix: !Select [0, !Split ['.0.0/16', !Ref VpcCidr]]
       MapPublicIpOnLaunch: true
@@ -176,7 +176,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [1, !GetAZs '']
-      CidrBlock: !Sub
+      CidrBlock: !Sub 
         - '${VpcCidrPrefix}.2.0/24'
         - VpcCidrPrefix: !Select [0, !Split ['.0.0/16', !Ref VpcCidr]]
       MapPublicIpOnLaunch: true
@@ -370,7 +370,6 @@ Resources:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
-      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
       Certificates:
         - CertificateArn: !Ref CertificateArn
 
@@ -758,7 +757,7 @@ Outputs:
 
   ApplicationURL:
     Description: Application URL
-    Value: !Sub
+    Value: !Sub 
       - '${Protocol}://${DNSName}'
       - Protocol: !If [EnableSSLCondition, 'https', 'http']
         DNSName: !GetAtt ApplicationLoadBalancer.DNSName
