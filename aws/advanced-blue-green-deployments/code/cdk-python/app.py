@@ -267,7 +267,10 @@ class AdvancedBlueGreenDeploymentStack(Stack):
                                 "ecs:DescribeServices",
                                 "ecs:DescribeTasks",
                             ],
-                            resources=["*"],
+                            resources=[
+                                self.pre_deployment_hook.function_arn if hasattr(self, "pre_deployment_hook") else "*",
+                                self.post_deployment_hook.function_arn if hasattr(self, "post_deployment_hook") else "*",
+                            ],
                         )
                     ]
                 )
@@ -836,7 +839,7 @@ def validate_deployment_success(event):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["codedeploy:PutLifecycleEventHookExecutionStatus"],
-                resources=["*"],
+                resources=[self.pre_deployment_hook.function_arn],
             )
         )
 
@@ -847,7 +850,10 @@ def validate_deployment_success(event):
                     "codedeploy:PutLifecycleEventHookExecutionStatus",
                     "cloudwatch:PutMetricData",
                 ],
-                resources=["*"],
+                resources=[
+                    self.post_deployment_hook.function_arn,
+                    f"arn:aws:cloudwatch:{self.region}:{self.account}:metric/Deployment/Validation",
+                ],
             )
         )
 

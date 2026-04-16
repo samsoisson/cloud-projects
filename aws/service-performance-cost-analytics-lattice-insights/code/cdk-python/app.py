@@ -94,7 +94,12 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "vpc-lattice:ListServiceNetworks",
                                 "lambda:InvokeFunction"
                             ],
-                            resources=["*"]
+                            resources=[
+                                log_group.log_group_arn,
+                                f"arn:aws:lambda:{self.region}:{self.account}:function:performance-analyzer-{unique_suffix}",
+                                f"arn:aws:lambda:{self.region}:{self.account}:function:cost-correlator-{unique_suffix}",
+                                f"arn:aws:lambda:{self.region}:{self.account}:function:report-generator-{unique_suffix}"
+                            ]
                         )
                     ]
                 )

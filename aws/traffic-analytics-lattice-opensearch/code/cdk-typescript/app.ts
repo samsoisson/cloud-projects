@@ -78,6 +78,7 @@ export class TrafficAnalyticsStack extends cdk.Stack {
         enabled: true,
       },
       enforceHttps: true,
+      tlsSecurityPolicy: opensearch.TLSSecurityPolicy.TLS_1_2,
       logging: {
         slowSearchLogEnabled: true,
         appLogEnabled: true,

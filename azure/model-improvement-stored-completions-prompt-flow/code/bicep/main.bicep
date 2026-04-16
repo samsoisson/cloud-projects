@@ -78,6 +78,7 @@ resource openAIService 'Microsoft.CognitiveServices/accounts@2024-06-01-preview'
     customSubDomainName: resourceNames.openAIService
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: false
+    minimumTlsVersion: '1.2'
     // Enable stored completions feature
     apiProperties: {
       statisticsEnabled: true
@@ -122,6 +123,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     accessTier: 'Hot'
     allowBlobPublicAccess: false
     allowSharedKeyAccess: true
+    minimumTlsVersion: 'TLS1_2'
     encryption: {
       services: {
         blob: {

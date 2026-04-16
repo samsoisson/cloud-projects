@@ -1,538 +1,1072 @@
+#!/usr/bin/env node
+import 'source-map-support/register';
+import * as cdk from 'aws-cdk-lib';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import { Construct } from 'constructs';
+
+interface BusinessContinuityTestingStackProps extends cdk.StackProps {
+  /**
+   * Email address for SNS notifications
+   */
+  readonly notificationEmail?: string;
+  
+  /**
+   * Project identifier for resource naming
+   */
+  readonly projectId?: string;
+  
+  /**
+   * Environment name (dev, staging, prod)
+   */
+  readonly environment?: string;
+  
+  /**
+   * Enable automated scheduling of tests
+   */
+  readonly enableAutomatedScheduling?: boolean;
+}
+
+export class BusinessContinuityTestingStack extends cdk.Stack {
+  public readonly testResultsBucket: s3.Bucket;
+  public readonly automationRole: iam.Role;
+  public readonly snsTopicArn: string;
+  public readonly orchestratorFunction: lambda.Function;
+
+  constructor(scope: Construct, id: string, props: BusinessContinuityTestingStackProps = {}) {
+    super(scope, id, props);
+
+    // Generate unique project ID if not provided
+    const projectId = props.projectId || this.generateProjectId();
+    const environment = props.environment || 'dev';
+    const enableScheduling = props.enableAutomatedScheduling ?? true;
+
+    // Create tags for all resources
+    const commonTags = {
+      Project: 'BusinessContinuityTesting',
+      Environment: environment,
+      ProjectId: projectId,
+      ManagedBy: 'CDK'
+    };
+
+    // Create IAM role for business continuity testing automation
+    this.automationRole = this.createAutomationRole(projectId, commonTags);
+
+    // Create S3 bucket for test results and reports
+    this.testResultsBucket = this.createTestResultsBucket(projectId, commonTags);
+
+    // Create SNS topic for notifications
+    const snsTopic = this.createSnsNotificationTopic(projectId, props.notificationEmail, commonTags);
+    this.snsTopicArn = snsTopic.topicArn;
+
+    // Create Systems Manager automation documents
+    const automationDocuments = this.createAutomationDocuments(projectId, commonTags);
+
+    // Create Lambda functions for orchestration and compliance
+    const lambdaFunctions = this.createLambdaFunctions(
+      projectId,
+      this.automationRole,
+      this.testResultsBucket,
+      snsTopic,
+      commonTags
+    );
+    this.orchestratorFunction = lambdaFunctions.orchestrator;
+
+    // Create automated testing schedules if enabled
+    if (enableScheduling) {
+      this.createTestingSchedules(projectId, lambdaFunctions.orchestrator, commonTags);
+    }
+
+    // Create CloudWatch dashboard for monitoring
+    this.createCloudWatchDashboard(projectId, lambdaFunctions, automationDocuments, commonTags);
+
+    // Apply tags to all resources
+    this.applyTags(commonTags);
+
+    // Create stack outputs
+    this.createOutputs(projectId, lambdaFunctions);
+  }
+
+  /**
+   * Generate a unique project identifier
+   */
+  private generateProjectId(): string {
+    return Math.random().toString(36).substring(2, 10);
+  }
+
+  /**
+   * Create IAM role for automation services
+   */
+  private createAutomationRole(projectId: string, tags: Record<string, string>): iam.Role {
+    const role = new iam.Role(this, 'BCTestingAutomationRole', {
+      roleName: `BCTestingRole-${projectId}`,
+      description: 'IAM role for business continuity testing automation',
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ServicePrincipal('ssm.amazonaws.com'),
+        new iam.ServicePrincipal('lambda.amazonaws.com'),
+        new iam.ServicePrincipal('states.amazonaws.com'),
+        new iam.ServicePrincipal('events.amazonaws.com')
+      ),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
+      ]
+    });
+
+    // Add comprehensive policy for BC testing operations
+    role.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ssm:*',
+        'ec2:*',
+        'rds:*',
+        's3:*',
+        'lambda:*',
+        'states:*',
+        'events:*',
+        'cloudwatch:*',
+        'sns:*',
+        'logs:*',
+        'backup:*'
+      ],
+      resources: ['*']
+    }));
+
+    // Apply tags
+    Object.entries(tags).forEach(([key, value]) => {
+      cdk.Tags.of(role).add(key, value);
+    });
+
+    return role;
+  }
+
+  /**
+   * Create S3 bucket for test results with lifecycle management
+   */
+  private createTestResultsBucket(projectId: string, tags: Record<string, string>): s3.Bucket {
+    const bucket = new s3.Bucket(this, 'BCTestResultsBucket', {
+      bucketName: `bc-testing-results-${projectId}`,
+      versioned: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [
+        {
+          id: 'BCTestResultsRetention',
+          enabled: true,
+          prefix: 'test-results/',
+          transitions: [
+            {
+              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+              transitionAfter: cdk.Duration.days(30)
+            },
+            {
+              storageClass: s3.StorageClass.GLACIER,
+              transitionAfter: cdk.Duration.days(90)
+            }
+          ],
+          expiration: cdk.Duration.days(2555) // ~7 years
+        }
+      ]
+    });
+
+    // Apply tags
+    Object.entries(tags).forEach(([key, value]) => {
+      cdk.Tags.of(bucket).add(key, value);
+    });
+
+    return bucket;
+  }
+
+  /**
+   * Create SNS topic for BC testing notifications
+   */
+  private createSnsNotificationTopic(
+    projectId: string,
+    notificationEmail?: string,
+    tags: Record<string, string> = {}
+  ): sns.Topic {
+    const topic = new sns.Topic(this, 'BCTestingNotificationTopic', {
+      topicName: `bc-alerts-${projectId}`,
+      displayName: 'Business Continuity Testing Alerts'
+    });
+
+    // Subscribe email if provided
+    if (notificationEmail) {
+      topic.addSubscription(new subscriptions.EmailSubscription(notificationEmail));
+    }
+
+    // Apply tags
+    Object.entries(tags).forEach(([key, value]) => {
+      cdk.Tags.of(topic).add(key, value);
+    });
+
+    return topic;
+  }
+
+  /**
+   * Create Systems Manager automation documents
+   */
+  private createAutomationDocuments(
+    projectId: string,
+    tags: Record<string, string>
+  ): { backupValidation: ssm.CfnDocument; databaseRecovery: ssm.CfnDocument; applicationFailover: ssm.CfnDocument } {
+    
+    // Backup Validation Automation Document
+    const backupValidationDocument = new ssm.CfnDocument(this, 'BackupValidationDocument', {
+      documentType: 'Automation',
+      documentFormat: 'YAML',
+      name: `BC-BackupValidation-${projectId}`,
+      content: {
+        schemaVersion: '0.3',
+        description: 'Validate backup integrity and restore capabilities',
+        assumeRole: '{{ AutomationAssumeRole }}',
+        parameters: {
+          InstanceId: {
+            type: 'String',
+            description: 'EC2 instance ID to test backup restore'
+          },
+          BackupVaultName: {
+            type: 'String',
+            description: 'AWS Backup vault name'
+          },
+          AutomationAssumeRole: {
+            type: 'String',
+            description: 'IAM role for automation execution'
+          }
+        },
+        mainSteps: [
+          {
+            name: 'CreateRestoreTestInstance',
+            action: 'aws:executeAwsApi',
+            inputs: {
+              Service: 'backup',
+              Api: 'StartRestoreJob',
+              RecoveryPointArn: '{{ GetLatestRecoveryPoint.RecoveryPointArn }}',
+              Metadata: {
+                InstanceType: 't3.micro'
+              },
+              IamRoleArn: '{{ AutomationAssumeRole }}'
+            },
+            outputs: [
+              {
+                Name: 'RestoreJobId',
+                Selector: '$.RestoreJobId',
+                Type: 'String'
+              }
+            ]
+          },
+          {
+            name: 'WaitForRestoreCompletion',
+            action: 'aws:waitForAwsResourceProperty',
+            inputs: {
+              Service: 'backup',
+              Api: 'DescribeRestoreJob',
+              RestoreJobId: '{{ CreateRestoreTestInstance.RestoreJobId }}',
+              PropertySelector: '$.Status',
+              DesiredValues: ['COMPLETED']
+            },
+            timeoutSeconds: 3600
+          },
+          {
+            name: 'ValidateRestoredInstance',
+            action: 'aws:runCommand',
+            inputs: {
+              DocumentName: 'AWS-RunShellScript',
+              InstanceIds: ['{{ CreateRestoreTestInstance.CreatedResourceArn }}'],
+              Parameters: {
+                commands: [
+                  '#!/bin/bash',
+                  'echo "Validating restored instance..."',
+                  'systemctl status',
+                  'df -h',
+                  'if command -v nginx &> /dev/null; then systemctl status nginx; fi',
+                  'echo "Validation completed"'
+                ]
+              }
+            },
+            outputs: [
+              {
+                Name: 'ValidationResults',
+                Selector: '$.CommandInvocations[0].CommandPlugins[0].Output',
+                Type: 'String'
+              }
+            ]
+          },
+          {
+            name: 'CleanupTestInstance',
+            action: 'aws:executeAwsApi',
+            inputs: {
+              Service: 'ec2',
+              Api: 'TerminateInstances',
+              InstanceIds: ['{{ CreateRestoreTestInstance.CreatedResourceArn }}']
+            }
+          }
+        ],
+        outputs: ['ValidationResults: {{ ValidateRestoredInstance.ValidationResults }}']
+      },
+      tags: Object.entries(tags).map(([key, value]) => ({ key, value }))
+    });
+
+    // Database Recovery Automation Document
+    const databaseRecoveryDocument = new ssm.CfnDocument(this, 'DatabaseRecoveryDocument', {
+      documentType: 'Automation',
+      documentFormat: 'YAML',
+      name: `BC-DatabaseRecovery-${projectId}`,
+      content: {
+        schemaVersion: '0.3',
+        description: 'Test database backup and recovery procedures',
+        assumeRole: '{{ AutomationAssumeRole }}',
+        parameters: {
+          DBInstanceIdentifier: {
+            type: 'String',
+            description: 'RDS instance identifier'
+          },
+          DBSnapshotIdentifier: {
+            type: 'String',
+            description: 'Snapshot to restore from'
+          },
+          TestDBInstanceIdentifier: {
+            type: 'String',
+            description: 'Test database instance identifier'
+          },
+          AutomationAssumeRole: {
+            type: 'String',
+            description: 'IAM role for automation execution'
+          }
+        },
+        mainSteps: [
+          {
+            name: 'CreateTestDatabase',
+            action: 'aws:executeAwsApi',
+            inputs: {
+              Service: 'rds',
+              Api: 'RestoreDBInstanceFromDBSnapshot',
+              DBInstanceIdentifier: '{{ TestDBInstanceIdentifier }}',
+              DBSnapshotIdentifier: '{{ DBSnapshotIdentifier }}',
+              DBInstanceClass: 'db.t3.micro',
+              PubliclyAccessible: false,
+              StorageEncrypted: true
+            },
+            outputs: [
+              {
+                Name: 'TestDBEndpoint',
+                Selector: '$.DBInstance.Endpoint.Address',
+                Type: 'String'
+              }
+            ]
+          },
+          {
+            name: 'WaitForDBAvailable',
+            action: 'aws:waitForAwsResourceProperty',
+            inputs: {
+              Service: 'rds',
+              Api: 'DescribeDBInstances',
+              DBInstanceIdentifier: '{{ TestDBInstanceIdentifier }}',
+              PropertySelector: '$.DBInstances[0].DBInstanceStatus',
+              DesiredValues: ['available']
+            },
+            timeoutSeconds: 1800
+          },
+          {
+            name: 'CleanupTestDatabase',
+            action: 'aws:executeAwsApi',
+            inputs: {
+              Service: 'rds',
+              Api: 'DeleteDBInstance',
+              DBInstanceIdentifier: '{{ TestDBInstanceIdentifier }}',
+              SkipFinalSnapshot: true,
+              DeleteAutomatedBackups: true
+            }
+          }
+        ]
+      },
+      tags: Object.entries(tags).map(([key, value]) => ({ key, value }))
+    });
+
+    // Application Failover Automation Document
+    const applicationFailoverDocument = new ssm.CfnDocument(this, 'ApplicationFailoverDocument', {
+      documentType: 'Automation',
+      documentFormat: 'YAML',
+      name: `BC-ApplicationFailover-${projectId}`,
+      content: {
+        schemaVersion: '0.3',
+        description: 'Test application failover to secondary region',
+        assumeRole: '{{ AutomationAssumeRole }}',
+        parameters: {
+          PrimaryLoadBalancerArn: {
+            type: 'String',
+            description: 'Primary Application Load Balancer ARN'
+          },
+          SecondaryLoadBalancerArn: {
+            type: 'String',
+            description: 'Secondary Application Load Balancer ARN'
+          },
+          Route53HostedZoneId: {
+            type: 'String',
+            description: 'Route 53 hosted zone ID'
+          },
+          DomainName: {
+            type: 'String',
+            description: 'Domain name for failover testing'
+          },
+          AutomationAssumeRole: {
+            type: 'String',
+            description: 'IAM role for automation execution'
+          }
+        },
+        mainSteps: [
+          {
+            name: 'CheckPrimaryApplicationHealth',
+            action: 'aws:executeScript',
+            inputs: {
+              Runtime: 'python3.8',
+              Handler: 'check_application_health',
+              Script: `
+import requests
+import json
+
+def check_application_health(events, context):
+    domain = events['DomainName']
+    
+    try:
+        response = requests.get(f'https://{domain}/health', timeout=30)
+        
+        return {
+            'statusCode': response.status_code,
+            'healthy': response.status_code == 200,
+            'response_time': response.elapsed.total_seconds()
+        }
+        
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'healthy': False,
+            'error': str(e)
+        }
+              `,
+              InputPayload: {
+                DomainName: '{{ DomainName }}'
+              }
+            },
+            outputs: [
+              {
+                Name: 'PrimaryHealthStatus',
+                Selector: '$.Payload.healthy',
+                Type: 'Boolean'
+              }
+            ]
+          },
+          {
+            name: 'WaitForDNSPropagation',
+            action: 'aws:sleep',
+            inputs: {
+              Duration: 'PT2M'
+            }
+          }
+        ]
+      },
+      tags: Object.entries(tags).map(([key, value]) => ({ key, value }))
+    });
+
+    return {
+      backupValidation: backupValidationDocument,
+      databaseRecovery: databaseRecoveryDocument,
+      applicationFailover: applicationFailoverDocument
+    };
+  }
+
+  /**
+   * Create Lambda functions for orchestration and compliance
+   */
+  private createLambdaFunctions(
+    projectId: string,
+    role: iam.Role,
+    resultsBucket: s3.Bucket,
+    snsTopic: sns.Topic,
+    tags: Record<string, string>
+  ): { orchestrator: lambda.Function; compliance: lambda.Function; manual: lambda.Function } {
+
+    // Test Orchestrator Lambda Function
+    const orchestratorFunction = new lambda.Function(this, 'BCTestOrchestratorFunction', {
+      functionName: `bc-test-orchestrator-${projectId}`,
+      runtime: lambda.Runtime.PYTHON_3_9,
+      handler: 'index.lambda_handler',
+      role: role,
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 512,
+      environment: {
+        PROJECT_ID: projectId,
+        RESULTS_BUCKET: resultsBucket.bucketName,
+        AUTOMATION_ROLE_ARN: role.roleArn,
+        SNS_TOPIC_ARN: snsTopic.topicArn,
+        RESULTS_BUCKET_EXPECTED_OWNER: cdk.Stack.of(this).account
+      },
+      code: lambda.Code.fromInline(`
 import json
 import boto3
-import logging
+import datetime
+import uuid
 import os
-import time
-from urllib.parse import unquote_plus
-
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
-
-# Initialize AWS clients
-s3 = boto3.client('s3')
-bedrock_agentcore = boto3.client('bedrock-agentcore')
+from typing import Dict, List
 
 def lambda_handler(event, context):
-    """
-    Orchestrates automated data analysis using Bedrock AgentCore
-    Triggered by S3 object creation events and processes uploaded datasets
-    """
+    ssm = boto3.client('ssm')
+    s3 = boto3.client('s3')
+    sns = boto3.client('sns')
+    
+    test_type = event.get('testType', 'daily')
+    test_id = str(uuid.uuid4())
+    
+    test_results = {
+        'testId': test_id,
+        'testType': test_type,
+        'timestamp': datetime.datetime.utcnow().isoformat(),
+        'results': []
+    }
+    
     try:
-        # Parse S3 event
-        for record in event['Records']:
-            bucket_name = record['s3']['bucket']['name']
-            object_key = unquote_plus(record['s3']['object']['key'])
-            object_size = record['s3']['object']['size']
-            
-            logger.info(f"Processing file: {object_key} from bucket: {bucket_name} (size: {object_size} bytes)")
-            
-            # Skip processing if file is too small (likely empty)
-            if object_size < 10:
-                logger.warning(f"Skipping file {object_key} - file too small ({object_size} bytes)")
-                continue
-            
-            # Generate analysis based on file type
-            file_extension = object_key.split('.')[-1].lower()
-            analysis_code = generate_analysis_code(file_extension, bucket_name, object_key)
-            
-            # Create AgentCore session and execute analysis
-            session_name = f'DataAnalysis-{int(time.time())}-{file_extension}'
-            
-            try:
-                session_response = bedrock_agentcore.start_code_interpreter_session(
-                    codeInterpreterIdentifier='aws.codeinterpreter.v1',
-                    name=session_name,
-                    sessionTimeoutSeconds=900
-                )
-                session_id = session_response['sessionId']
-                
-                logger.info(f"Started AgentCore session: {session_id} for file: {object_key}")
-                
-                # Execute the analysis code
-                execution_response = bedrock_agentcore.invoke_code_interpreter(
-                    codeInterpreterIdentifier='aws.codeinterpreter.v1',
-                    sessionId=session_id,
-                    name='executeAnalysis',
-                    arguments={
-                        'language': 'python',
-                        'code': analysis_code
-                    }
-                )
-                
-                logger.info(f"Analysis execution completed for {object_key}")
-                
-                # Extract execution results
-                execution_status = execution_response.get('status', 'unknown')
-                execution_output = execution_response.get('output', {})
-                
-                # Store results metadata
-                results_key = f"analysis-results/{object_key.replace('.', '_')}_analysis_{int(time.time())}.json"
-                result_metadata = {
-                    'source_file': object_key,
-                    'source_bucket': bucket_name,
-                    'file_size_bytes': object_size,
-                    'file_type': file_extension,
-                    'session_id': session_id,
-                    'session_name': session_name,
-                    'analysis_timestamp': time.time(),
-                    'execution_status': execution_status,
-                    'lambda_request_id': context.aws_request_id,
-                    'execution_output': execution_output,
-                    'analysis_summary': {
-                        'processing_time_seconds': time.time() - float(session_name.split('-')[1]),
-                        'success': execution_status == 'completed'
-                    }
-                }
-                
-                # Store results in S3
-                s3.put_object(
-                    Bucket=os.environ['RESULTS_BUCKET_NAME'],
-                    Key=results_key,
-                    Body=json.dumps(result_metadata, indent=2, default=str),
-                    ContentType='application/json',
-                    Metadata={
-                        'source-file': object_key,
-                        'session-id': session_id,
-                        'analysis-status': execution_status
-                    }
-                )
-                
-                logger.info(f"Results stored at: s3://{os.environ['RESULTS_BUCKET_NAME']}/{results_key}")
-                
-            except Exception as session_error:
-                logger.error(f"AgentCore session error for {object_key}: {str(session_error)}")
-                
-                # Store error information
-                error_key = f"analysis-errors/{object_key.replace('.', '_')}_error_{int(time.time())}.json"
-                error_metadata = {
-                    'source_file': object_key,
-                    'error_timestamp': time.time(),
-                    'error_message': str(session_error),
-                    'lambda_request_id': context.aws_request_id
-                }
-                
-                s3.put_object(
-                    Bucket=os.environ['RESULTS_BUCKET_NAME'],
-                    Key=error_key,
-                    Body=json.dumps(error_metadata, indent=2),
-                    ContentType='application/json'
-                )
-                
-            finally:
-                # Clean up session if it was created
-                try:
-                    if 'session_id' in locals():
-                        bedrock_agentcore.stop_code_interpreter_session(
-                            codeInterpreterIdentifier='aws.codeinterpreter.v1',
-                            sessionId=session_id
-                        )
-                        logger.info(f"Cleaned up session: {session_id}")
-                except Exception as cleanup_error:
-                    logger.warning(f"Session cleanup warning: {str(cleanup_error)}")
+        if test_type in ['daily', 'weekly', 'monthly']:
+            backup_result = execute_backup_validation(ssm, test_id)
+            test_results['results'].append(backup_result)
+        
+        if test_type in ['weekly', 'monthly']:
+            db_result = execute_database_recovery_test(ssm, test_id)
+            test_results['results'].append(db_result)
+        
+        if test_type == 'monthly':
+            app_result = execute_application_failover_test(ssm, test_id)
+            test_results['results'].append(app_result)
+        
+        # Store results in S3
+        s3.put_object(
+            Bucket=os.environ['RESULTS_BUCKET'],
+            Key=f'test-results/{test_type}/{test_id}/results.json',
+            Body=json.dumps(test_results, indent=2),
+            ContentType='application/json',
+            ExpectedBucketOwner=os.environ.get('RESULTS_BUCKET_EXPECTED_OWNER')
+        )
+        
+        summary = generate_test_summary(test_results)
+        
+        sns.publish(
+            TopicArn=os.environ['SNS_TOPIC_ARN'],
+            Subject=f'BC Testing {test_type.title()} Report - {test_id[:8]}',
+            Message=summary
+        )
         
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': 'Analysis completed successfully',
-                'processed_files': len(event['Records']),
-                'timestamp': time.time()
+                'testId': test_id,
+                'summary': summary
             })
         }
         
     except Exception as e:
-        logger.error(f"Error processing analysis: {str(e)}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'error': str(e),
-                'timestamp': time.time()
-            })
+        error_message = f'BC testing failed: {str(e)}'
+        sns.publish(
+            TopicArn=os.environ['SNS_TOPIC_ARN'],
+            Subject=f'BC Testing Failed - {test_id[:8]}',
+            Message=error_message
+        )
+        raise e
+
+def execute_backup_validation(ssm, test_id):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-BackupValidation-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'InstanceId': [os.environ.get('TEST_INSTANCE_ID', 'i-1234567890abcdef0')],
+            'BackupVaultName': [os.environ.get('BACKUP_VAULT_NAME', 'default')],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
         }
+    )
+    
+    return {
+        'test': 'backup_validation',
+        'executionId': response['AutomationExecutionId'],
+        'status': 'started'
+    }
 
-def generate_analysis_code(file_type, bucket_name, object_key):
-    """
-    Generate appropriate analysis code based on file type
-    Returns Python code as a string for execution in AgentCore
-    """
-    base_code = f'''
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-import boto3
-import io
+def execute_database_recovery_test(ssm, test_id):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-DatabaseRecovery-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'DBInstanceIdentifier': [os.environ.get('DB_INSTANCE_ID', 'prod-db')],
+            'DBSnapshotIdentifier': [os.environ.get('DB_SNAPSHOT_ID', 'latest-snapshot')],
+            'TestDBInstanceIdentifier': [f'test-db-{test_id[:8]}'],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
+        }
+    )
+    
+    return {
+        'test': 'database_recovery',
+        'executionId': response['AutomationExecutionId'],
+        'status': 'started'
+    }
+
+def execute_application_failover_test(ssm, test_id):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-ApplicationFailover-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'PrimaryLoadBalancerArn': [os.environ.get('PRIMARY_ALB_ARN', 'arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/primary/1234567890123456')],
+            'SecondaryLoadBalancerArn': [os.environ.get('SECONDARY_ALB_ARN', 'arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/secondary/6543210987654321')],
+            'Route53HostedZoneId': [os.environ.get('HOSTED_ZONE_ID', 'Z1234567890123')],
+            'DomainName': [os.environ.get('DOMAIN_NAME', 'app.example.com')],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
+        }
+    )
+    
+    return {
+        'test': 'application_failover',
+        'executionId': response['AutomationExecutionId'],
+        'status': 'started'
+    }
+
+def generate_test_summary(test_results):
+    total_tests = len(test_results['results'])
+    summary = f"""
+Business Continuity Testing Summary
+Test ID: {test_results['testId']}
+Test Type: {test_results['testType']}
+Timestamp: {test_results['timestamp']}
+
+Tests Executed: {total_tests}
+
+Test Results:
+"""
+    
+    for result in test_results['results']:
+        summary += f"- {result['test']}: {result['status']}\\n"
+    
+    return summary
+      `)
+    });
+
+    // Compliance Reporter Lambda Function
+    const complianceFunction = new lambda.Function(this, 'BCComplianceReporterFunction', {
+      functionName: `bc-compliance-reporter-${projectId}`,
+      runtime: lambda.Runtime.PYTHON_3_9,
+      handler: 'index.lambda_handler',
+      role: role,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      environment: {
+        RESULTS_BUCKET: resultsBucket.bucketName,
+        RESULTS_BUCKET_EXPECTED_OWNER: cdk.Stack.of(this).account
+      },
+      code: lambda.Code.fromInline(`
 import json
-from datetime import datetime
+import boto3
+import datetime
+import os
 
-# Set up plotting style
-plt.style.use('default')
-sns.set_palette("husl")
+def lambda_handler(event, context):
+    s3 = boto3.client('s3')
+    ssm = boto3.client('ssm')
+    
+    report_data = generate_compliance_report(s3, ssm)
+    
+    report_key = f"compliance-reports/{datetime.datetime.utcnow().strftime('%Y-%m')}/bc-compliance-report.json"
+    
+    s3.put_object(
+        Bucket=os.environ['RESULTS_BUCKET'],
+        Key=report_key,
+        Body=json.dumps(report_data, indent=2),
+        ContentType='application/json',
+        ExpectedBucketOwner=os.environ.get('RESULTS_BUCKET_EXPECTED_OWNER')
+    )
+    
+    html_report = generate_html_report(report_data)
+    
+    s3.put_object(
+        Bucket=os.environ['RESULTS_BUCKET'],
+        Key=f"compliance-reports/{datetime.datetime.utcnow().strftime('%Y-%m')}/bc-compliance-report.html",
+        Body=html_report,
+        ContentType='text/html',
+        ExpectedBucketOwner=os.environ.get('RESULTS_BUCKET_EXPECTED_OWNER')
+    )
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'reportGenerated': True,
+            'reportLocation': report_key
+        })
+    }
 
-# Download the file from S3
-s3 = boto3.client('s3')
-try:
-    obj = s3.get_object(Bucket='{bucket_name}', Key='{object_key}')
-    print(f"Successfully downloaded file: {object_key}")
-    print(f"File size: {{obj['ContentLength']}} bytes")
-    print(f"Last modified: {{obj['LastModified']}}")
-    print("=" * 50)
-except Exception as e:
-    print(f"Error downloading file: {{e}}")
-    raise
-'''
+def generate_compliance_report(s3, ssm):
+    start_date = datetime.datetime.utcnow() - datetime.timedelta(days=30)
     
-    if file_type in ['csv']:
-        analysis_code = base_code + '''
-try:
-    # Read CSV file
-    df = pd.read_csv(io.BytesIO(obj['Body'].read()))
+    report = {
+        'reportPeriod': {
+            'start': start_date.isoformat(),
+            'end': datetime.datetime.utcnow().isoformat()
+        },
+        'testingSummary': {
+            'dailyTests': 0,
+            'weeklyTests': 0,
+            'monthlyTests': 0,
+            'totalTests': 0,
+            'successfulTests': 0,
+            'failedTests': 0
+        },
+        'complianceStatus': 'COMPLIANT',
+        'recommendations': []
+    }
     
-    print("📊 DATASET OVERVIEW")
-    print("=" * 50)
-    print(f"Dataset shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
-    print(f"Column names: {list(df.columns)}")
-    print(f"Memory usage: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+    return report
+
+def generate_html_report(report_data):
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Business Continuity Compliance Report</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .header {{ background-color: #f0f0f0; padding: 20px; }}
+        .summary {{ margin: 20px 0; }}
+        .compliant {{ color: green; }}
+        .non-compliant {{ color: red; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Business Continuity Testing Compliance Report</h1>
+        <p>Report Period: {report_data['reportPeriod']['start']} to {report_data['reportPeriod']['end']}</p>
+    </div>
     
-    print("\\n📋 COLUMN INFORMATION")
-    print("=" * 50)
-    print(df.info())
+    <div class="summary">
+        <h2>Testing Summary</h2>
+        <p>Total Tests Executed: {report_data['testingSummary']['totalTests']}</p>
+        <p>Successful Tests: {report_data['testingSummary']['successfulTests']}</p>
+        <p>Failed Tests: {report_data['testingSummary']['failedTests']}</p>
+        <p>Compliance Status: <span class="{report_data['complianceStatus'].lower()}">{report_data['complianceStatus']}</span></p>
+    </div>
+</body>
+</html>
+    """
+    return html
+      `)
+    });
+
+    // Manual Test Executor Lambda Function
+    const manualTestFunction = new lambda.Function(this, 'BCManualTestExecutorFunction', {
+      functionName: `bc-manual-test-executor-${projectId}`,
+      runtime: lambda.Runtime.PYTHON_3_9,
+      handler: 'index.lambda_handler',
+      role: role,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      environment: {
+        PROJECT_ID: projectId,
+        AUTOMATION_ROLE_ARN: role.roleArn
+      },
+      code: lambda.Code.fromInline(`
+import json
+import boto3
+import uuid
+import os
+
+def lambda_handler(event, context):
+    ssm = boto3.client('ssm')
     
-    print("\\n📈 STATISTICAL SUMMARY")
-    print("=" * 50)
-    print(df.describe(include='all'))
+    test_type = event.get('testType', 'comprehensive')
+    test_components = event.get('components', ['backup', 'database', 'application'])
     
-    print("\\n🔍 DATA QUALITY ASSESSMENT")
-    print("=" * 50)
-    missing_data = df.isnull().sum()
-    print("Missing values per column:")
-    for col, missing in missing_data.items():
-        percentage = (missing / len(df)) * 100
-        print(f"  {col}: {missing} ({percentage:.1f}%)")
+    execution_results = []
     
-    # Check for duplicates
-    duplicates = df.duplicated().sum()
-    print(f"\\nDuplicate rows: {duplicates} ({duplicates/len(df)*100:.1f}%)")
+    for component in test_components:
+        if component == 'backup':
+            result = execute_backup_test(ssm)
+            execution_results.append(result)
+        elif component == 'database':
+            result = execute_database_test(ssm)
+            execution_results.append(result)
+        elif component == 'application':
+            result = execute_application_test(ssm)
+            execution_results.append(result)
     
-    # Data type analysis
-    print("\\nData types:")
-    for dtype_name, dtype_group in df.dtypes.groupby(df.dtypes):
-        print(f"  {dtype_name}: {len(dtype_group)} columns")
-    
-    # Generate visualizations for numeric columns
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    if len(numeric_cols) > 0:
-        print(f"\\n📊 GENERATING VISUALIZATIONS FOR {len(numeric_cols)} NUMERIC COLUMNS")
-        print("=" * 50)
-        
-        # Create distribution plots
-        n_plots = min(len(numeric_cols), 6)  # Limit to 6 plots
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-        fig.suptitle('Distribution Analysis', fontsize=16, fontweight='bold')
-        
-        for i, col in enumerate(numeric_cols[:n_plots]):
-            row, col_idx = divmod(i, 3)
-            ax = axes[row, col_idx] if n_plots > 3 else axes[i] if n_plots > 1 else axes
-            
-            # Handle different types of numeric data
-            if df[col].nunique() < 20:  # Categorical-like numeric data
-                df[col].value_counts().plot(kind='bar', ax=ax, color='skyblue')
-                ax.set_title(f'{col} (Value Counts)')
-            else:  # Continuous numeric data
-                df[col].hist(bins=20, ax=ax, alpha=0.7, color='lightcoral')
-                ax.set_title(f'{col} (Distribution)')
-            
-            ax.tick_params(axis='x', rotation=45)
-            ax.grid(True, alpha=0.3)
-        
-        # Hide unused subplots
-        for i in range(n_plots, 6):
-            row, col_idx = divmod(i, 3)
-            axes[row, col_idx].set_visible(False)
-        
-        plt.tight_layout()
-        plt.savefig('/tmp/distributions.png', dpi=150, bbox_inches='tight')
-        print("✅ Distribution plots saved as distributions.png")
-        
-        # Correlation analysis if multiple numeric columns
-        if len(numeric_cols) > 1:
-            plt.figure(figsize=(10, 8))
-            correlation_matrix = df[numeric_cols].corr()
-            sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', center=0,
-                       square=True, linewidths=0.5)
-            plt.title('Correlation Matrix', fontsize=14, fontweight='bold')
-            plt.tight_layout()
-            plt.savefig('/tmp/correlation.png', dpi=150, bbox_inches='tight')
-            print("✅ Correlation heatmap saved as correlation.png")
-    
-    # Analyze categorical columns
-    categorical_cols = df.select_dtypes(include=['object']).columns
-    if len(categorical_cols) > 0:
-        print(f"\\n🏷️  CATEGORICAL ANALYSIS FOR {len(categorical_cols)} COLUMNS")
-        print("=" * 50)
-        
-        for col in categorical_cols[:5]:  # Limit to first 5 categorical columns
-            unique_vals = df[col].nunique()
-            print(f"\\n{col}:")
-            print(f"  Unique values: {unique_vals}")
-            if unique_vals <= 10:
-                print("  Value counts:")
-                for val, count in df[col].value_counts().head().items():
-                    print(f"    {val}: {count}")
-            else:
-                print("  Top 5 values:")
-                for val, count in df[col].value_counts().head().items():
-                    print(f"    {val}: {count}")
-    
-    print("\\n✅ CSV ANALYSIS COMPLETED SUCCESSFULLY!")
-    print(f"Analysis timestamp: {datetime.now().isoformat()}")
-    
-except Exception as e:
-    print(f"❌ Error analyzing CSV file: {e}")
-    raise
-'''
-    
-    elif file_type in ['json']:
-        analysis_code = base_code + '''
-try:
-    # Read JSON file
-    data = json.loads(obj['Body'].read().decode('utf-8'))
-    
-    print("📄 JSON DATA ANALYSIS")
-    print("=" * 50)
-    print(f"Root data type: {type(data).__name__}")
-    
-    def analyze_json_structure(obj, path="root", max_depth=3, current_depth=0):
-        """Recursively analyze JSON structure"""
-        if current_depth > max_depth:
-            return {"truncated": True, "reason": "max_depth_reached"}
-        
-        if isinstance(obj, dict):
-            result = {
-                "type": "object",
-                "keys": list(obj.keys()),
-                "key_count": len(obj),
-                "properties": {}
-            }
-            
-            for key, value in list(obj.items())[:10]:  # Limit to first 10 keys
-                result["properties"][key] = analyze_json_structure(
-                    value, f"{path}.{key}", max_depth, current_depth + 1
-                )
-            
-            return result
-            
-        elif isinstance(obj, list):
-            result = {
-                "type": "array",
-                "length": len(obj),
-                "element_types": {}
-            }
-            
-            # Analyze first few elements
-            for i, item in enumerate(obj[:5]):
-                item_type = type(item).__name__
-                if item_type not in result["element_types"]:
-                    result["element_types"][item_type] = {
-                        "count": 0,
-                        "sample": analyze_json_structure(item, f"{path}[{i}]", max_depth, current_depth + 1)
-                    }
-                result["element_types"][item_type]["count"] += 1
-            
-            return result
-            
-        else:
-            return {
-                "type": type(obj).__name__,
-                "value": str(obj)[:100] + "..." if len(str(obj)) > 100 else str(obj)
-            }
-    
-    # Perform structure analysis
-    structure = analyze_json_structure(data)
-    
-    print("🏗️  JSON STRUCTURE ANALYSIS")
-    print("=" * 50)
-    
-    def print_structure(struct, indent=0):
-        """Pretty print JSON structure"""
-        prefix = "  " * indent
-        
-        if struct["type"] == "object":
-            print(f"{prefix}Object with {struct['key_count']} keys:")
-            for key, prop in struct["properties"].items():
-                print(f"{prefix}  {key}: ", end="")
-                if prop["type"] in ["object", "array"]:
-                    print(f"{prop['type']}")
-                    print_structure(prop, indent + 2)
-                else:
-                    print(f"{prop['type']} = {prop.get('value', 'N/A')}")
-        
-        elif struct["type"] == "array":
-            print(f"{prefix}Array with {struct['length']} elements:")
-            for elem_type, info in struct["element_types"].items():
-                print(f"{prefix}  {elem_type} ({info['count']} items)")
-                if info["sample"]["type"] in ["object", "array"]:
-                    print_structure(info["sample"], indent + 2)
-    
-    print_structure(structure)
-    
-    # Additional analysis for common JSON patterns
-    if isinstance(data, list) and len(data) > 0:
-        print("\\n📊 ARRAY ANALYSIS")
-        print("=" * 50)
-        print(f"Array length: {len(data):,} elements")
-        
-        # Check if it's an array of objects (common pattern)
-        if isinstance(data[0], dict):
-            print("Array contains objects - analyzing as tabular data...")
-            
-            # Try to convert to DataFrame for analysis
-            try:
-                df = pd.DataFrame(data)
-                print(f"Successfully converted to DataFrame: {df.shape[0]:,} rows × {df.shape[1]} columns")
-                print(f"Columns: {list(df.columns)}")
-                
-                # Basic statistics
-                print("\\nColumn info:")
-                for col in df.columns:
-                    dtype = df[col].dtype
-                    null_count = df[col].isnull().sum()
-                    unique_count = df[col].nunique()
-                    print(f"  {col}: {dtype}, {null_count} nulls, {unique_count} unique values")
-                
-            except Exception as df_error:
-                print(f"Could not convert to DataFrame: {df_error}")
-    
-    elif isinstance(data, dict):
-        print("\\n🔍 OBJECT ANALYSIS")
-        print("=" * 50)
-        
-        # Analyze top-level keys
-        for key, value in list(data.items())[:20]:  # First 20 keys
-            value_type = type(value).__name__
-            if isinstance(value, (list, dict)):
-                size = len(value)
-                print(f"  {key}: {value_type} (size: {size})")
-            else:
-                print(f"  {key}: {value_type} = {str(value)[:50]}...")
-    
-    print("\\n✅ JSON ANALYSIS COMPLETED SUCCESSFULLY!")
-    print(f"Analysis timestamp: {datetime.now().isoformat()}")
-    
-except json.JSONDecodeError as e:
-    print(f"❌ Invalid JSON format: {e}")
-    raise
-except Exception as e:
-    print(f"❌ Error analyzing JSON file: {e}")
-    raise
-'''
-    
-    elif file_type in ['xlsx', 'xls']:
-        analysis_code = base_code + '''
-try:
-    # Read Excel file
-    excel_data = pd.read_excel(io.BytesIO(obj['Body'].read()), sheet_name=None)
-    
-    print("📊 EXCEL FILE ANALYSIS")
-    print("=" * 50)
-    print(f"Number of sheets: {len(excel_data)}")
-    print(f"Sheet names: {list(excel_data.keys())}")
-    
-    for sheet_name, df in excel_data.items():
-        print(f"\\n📋 SHEET: {sheet_name}")
-        print("=" * 30)
-        print(f"Shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
-        print(f"Columns: {list(df.columns)}")
-        
-        # Basic statistics for each sheet
-        if not df.empty:
-            print(f"Memory usage: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
-            
-            # Missing data analysis
-            missing_data = df.isnull().sum()
-            missing_percent = (missing_data / len(df)) * 100
-            print("Missing data summary:")
-            for col, missing in missing_data.items():
-                if missing > 0:
-                    print(f"  {col}: {missing} ({missing_percent[col]:.1f}%)")
-            
-            # Data types
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            categorical_cols = df.select_dtypes(include=['object']).columns
-            datetime_cols = df.select_dtypes(include=['datetime']).columns
-            
-            print(f"Numeric columns: {len(numeric_cols)}")
-            print(f"Text columns: {len(categorical_cols)}")
-            print(f"DateTime columns: {len(datetime_cols)}")
-        
-        # Analyze only the first sheet in detail to avoid complexity
-        if sheet_name == list(excel_data.keys())[0] and not df.empty:
-            print(f"\\n📈 DETAILED ANALYSIS FOR FIRST SHEET: {sheet_name}")
-            print("=" * 50)
-            print(df.describe(include='all'))
-    
-    print("\\n✅ EXCEL ANALYSIS COMPLETED SUCCESSFULLY!")
-    print(f"Analysis timestamp: {datetime.now().isoformat()}")
-    
-except Exception as e:
-    print(f"❌ Error analyzing Excel file: {e}")
-    raise
-'''
-    
-    else:
-        # Generic file analysis for unsupported formats
-        analysis_code = base_code + f'''
-try:
-    # Generic file analysis
-    file_content = obj['Body'].read()
-    
-    print("📄 GENERIC FILE ANALYSIS")
-    print("=" * 50)
-    print(f"File extension: {file_type}")
-    print(f"File size: {{obj['ContentLength']:,}} bytes")
-    print(f"Content type: {{obj.get('ContentType', 'Unknown')}}")
-    
-    # Try to determine if it's text-based
-    try:
-        content_preview = file_content[:1000].decode('utf-8')
-        print("\\n📝 TEXT CONTENT PREVIEW (first 1000 characters):")
-        print("=" * 50)
-        print(content_preview)
-        
-        # Basic text analysis
-        lines = content_preview.split('\\n')
-        print(f"\\nEstimated lines in preview: {{len(lines)}}")
-        print(f"Average line length: {{sum(len(line) for line in lines) / len(lines):.1f}} characters")
-        
-    except UnicodeDecodeError:
-        print("\\n📁 BINARY FILE DETECTED")
-        print("=" * 50)
-        print("File appears to be binary - cannot preview content")
-        
-        # Analyze file signature
-        signature = file_content[:16].hex()
-        print(f"File signature (first 16 bytes): {{signature}}")
-        
-        # Common file signatures
-        signatures = {{
-            '89504e47': 'PNG Image',
-            'ffd8ffe0': 'JPEG Image', 
-            '504b0304': 'ZIP Archive',
-            'd0cf11e0': 'Microsoft Office Document',
-            '25504446': 'PDF Document'
-        }}
-        
-        for sig, description in signatures.items():
-            if signature.startswith(sig):
-                print(f"Detected file type: {{description}}")
-                break
-    
-    print("\\n✅ GENERIC FILE ANALYSIS COMPLETED!")
-    print(f"Analysis timestamp: {{datetime.now().isoformat()}}")
-    
-except Exception as e:
-    print(f"❌ Error analyzing file: {{e}}")
-    raise
-'''
-    
-    return analysis_code
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'testType': test_type,
+            'executionId': str(uuid.uuid4()),
+            'results': execution_results
+        })
+    }
+
+def execute_backup_test(ssm):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-BackupValidation-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'InstanceId': [os.environ.get('TEST_INSTANCE_ID', 'i-1234567890abcdef0')],
+            'BackupVaultName': [os.environ.get('BACKUP_VAULT_NAME', 'default')],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
+        }
+    )
+    return {'component': 'backup', 'executionId': response['AutomationExecutionId']}
+
+def execute_database_test(ssm):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-DatabaseRecovery-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'DBInstanceIdentifier': [os.environ.get('DB_INSTANCE_ID', 'prod-db')],
+            'DBSnapshotIdentifier': [os.environ.get('DB_SNAPSHOT_ID', 'latest-snapshot')],
+            'TestDBInstanceIdentifier': [f'manual-test-{uuid.uuid4().hex[:8]}'],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
+        }
+    )
+    return {'component': 'database', 'executionId': response['AutomationExecutionId']}
+
+def execute_application_test(ssm):
+    response = ssm.start_automation_execution(
+        DocumentName=f'BC-ApplicationFailover-{os.environ["PROJECT_ID"]}',
+        Parameters={
+            'PrimaryLoadBalancerArn': [os.environ.get('PRIMARY_ALB_ARN', 'arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/primary/1234567890123456')],
+            'SecondaryLoadBalancerArn': [os.environ.get('SECONDARY_ALB_ARN', 'arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/secondary/6543210987654321')],
+            'Route53HostedZoneId': [os.environ.get('HOSTED_ZONE_ID', 'Z1234567890123')],
+            'DomainName': [os.environ.get('DOMAIN_NAME', 'app.example.com')],
+            'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
+        }
+    )
+    return {'component': 'application', 'executionId': response['AutomationExecutionId']}
+      `)
+    });
+
+    // Apply tags to all Lambda functions
+    const functions = [orchestratorFunction, complianceFunction, manualTestFunction];
+    functions.forEach(func => {
+      Object.entries(tags).forEach(([key, value]) => {
+        cdk.Tags.of(func).add(key, value);
+      });
+    });
+
+    return {
+      orchestrator: orchestratorFunction,
+      compliance: complianceFunction,
+      manual: manualTestFunction
+    };
+  }
+
+  /**
+   * Create EventBridge rules for automated testing schedules
+   */
+  private createTestingSchedules(
+    projectId: string,
+    orchestratorFunction: lambda.Function,
+    tags: Record<string, string>
+  ): void {
+    // Daily basic tests
+    const dailyRule = new events.Rule(this, 'BCDailyTestsRule', {
+      ruleName: `bc-daily-tests-${projectId}`,
+      description: 'Daily business continuity basic tests',
+      schedule: events.Schedule.rate(cdk.Duration.days(1))
+    });
+
+    dailyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
+      event: events.RuleTargetInput.fromObject({ testType: 'daily' })
+    }));
+
+    // Weekly comprehensive tests
+    const weeklyRule = new events.Rule(this, 'BCWeeklyTestsRule', {
+      ruleName: `bc-weekly-tests-${projectId}`,
+      description: 'Weekly comprehensive business continuity tests',
+      schedule: events.Schedule.cron({ hour: '2', minute: '0', weekDay: 'SUN' })
+    });
+
+    weeklyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
+      event: events.RuleTargetInput.fromObject({ testType: 'weekly' })
+    }));
+
+    // Monthly full DR tests
+    const monthlyRule = new events.Rule(this, 'BCMonthlyTestsRule', {
+      ruleName: `bc-monthly-tests-${projectId}`,
+      description: 'Monthly full disaster recovery tests',
+      schedule: events.Schedule.cron({ hour: '1', minute: '0', day: '1' })
+    });
+
+    monthlyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
+      event: events.RuleTargetInput.fromObject({ testType: 'monthly' })
+    }));
+
+    // Apply tags to rules
+    const rules = [dailyRule, weeklyRule, monthlyRule];
+    rules.forEach(rule => {
+      Object.entries(tags).forEach(([key, value]) => {
+        cdk.Tags.of(rule).add(key, value);
+      });
+    });
+  }
+
+  /**
+   * Create CloudWatch dashboard for BC testing monitoring
+   */
+  private createCloudWatchDashboard(
+    projectId: string,
+    lambdaFunctions: { orchestrator: lambda.Function; compliance: lambda.Function; manual: lambda.Function },
+    automationDocuments: { backupValidation: ssm.CfnDocument; databaseRecovery: ssm.CfnDocument; applicationFailover: ssm.CfnDocument },
+    tags: Record<string, string>
+  ): cloudwatch.Dashboard {
+    const dashboard = new cloudwatch.Dashboard(this, 'BCTestingDashboard', {
+      dashboardName: `BC-Testing-${projectId}`,
+      widgets: [
+        [
+          // Lambda metrics widget
+          new cloudwatch.GraphWidget({
+            title: 'BC Testing Lambda Metrics',
+            left: [
+              lambdaFunctions.orchestrator.metricDuration(),
+              lambdaFunctions.orchestrator.metricErrors(),
+              lambdaFunctions.orchestrator.metricInvocations()
+            ],
+            width: 12,
+            height: 6
+          }),
+          // Systems Manager execution metrics
+          new cloudwatch.SingleValueWidget({
+            title: 'BC Testing Success/Failure Rates',
+            metrics: [
+              new cloudwatch.Metric({
+                namespace: 'AWS/SSM',
+                metricName: 'ExecutionSuccess',
+                dimensionsMap: {
+                  DocumentName: automationDocuments.backupValidation.name!
+                },
+                statistic: 'Sum',
+                period: cdk.Duration.days(1)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/SSM',
+                metricName: 'ExecutionFailed',
+                dimensionsMap: {
+                  DocumentName: automationDocuments.backupValidation.name!
+                },
+                statistic: 'Sum',
+                period: cdk.Duration.days(1)
+              })
+            ],
+            width: 12,
+            height: 6
+          })
+        ],
+        [
+          // Log insights widget for recent executions
+          new cloudwatch.LogQueryWidget({
+            title: 'Recent BC Test Executions',
+            logGroups: [
+              logs.LogGroup.fromLogGroupName(this, 'OrchestratorLogGroup', `/aws/lambda/${lambdaFunctions.orchestrator.functionName}`)
+            ],
+            queryLines: [
+              'fields @timestamp, @message',
+              'filter @message like /Test/',
+              'sort @timestamp desc',
+              'limit 20'
+            ],
+            width: 24,
+            height: 6
+          })
+        ]
+      ]
+    });
+
+    // Apply tags
+    Object.entries(tags).forEach(([key, value]) => {
+      cdk.Tags.of(dashboard).add(key, value);
+    });
+
+    return dashboard;
+  }
+
+  /**
+   * Apply common tags to all stack resources
+   */
+  private applyTags(tags: Record<string, string>): void {
+    Object.entries(tags).forEach(([key, value]) => {
+      cdk.Tags.of(this).add(key, value);
+    });
+  }
+
+  /**
+   * Create stack outputs
+   */
+  private createOutputs(
+    projectId: string,
+    lambdaFunctions: { orchestrator: lambda.Function; compliance: lambda.Function; manual: lambda.Function }
+  ): void {
+    new cdk.CfnOutput(this, 'ProjectId', {
+      value: projectId,
+      description: 'Business Continuity Testing Project ID'
+    });
+
+    new cdk.CfnOutput(this, 'TestResultsBucketName', {
+      value: this.testResultsBucket.bucketName,
+      description: 'S3 bucket for BC test results and compliance reports'
+    });
+
+    new cdk.CfnOutput(this, 'AutomationRoleArn', {
+      value: this.automationRole.roleArn,
+      description: 'IAM role ARN for BC testing automation'
+    });
+
+    new cdk.CfnOutput(this, 'OrchestratorFunctionArn', {
+      value: lambdaFunctions.orchestrator.functionArn,
+      description: 'Lambda function ARN for BC test orchestration'
+    });
+
+    new cdk.CfnOutput(this, 'ManualTestFunctionArn', {
+      value: lambdaFunctions.manual.functionArn,
+      description: 'Lambda function ARN for manual BC test execution'
+    });
+
+    new cdk.CfnOutput(this, 'SNSTopicArn', {
+      value: this.snsTopicArn,
+      description: 'SNS topic ARN for BC testing notifications'
+    });
+
+    new cdk.CfnOutput(this, 'DashboardURL', {
+      value: `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=BC-Testing-${projectId}`,
+      description: 'CloudWatch dashboard URL for BC testing monitoring'
+    });
+  }
+}
+
+// Create the CDK app
+const app = new cdk.App();
+
+// Get configuration from context or environment variables
+const projectId = app.node.tryGetContext('projectId') || process.env.PROJECT_ID;
+const environment = app.node.tryGetContext('environment') || process.env.ENVIRONMENT || 'dev';
+const notificationEmail = app.node.tryGetContext('notificationEmail') || process.env.NOTIFICATION_EMAIL;
+const enableScheduling = app.node.tryGetContext('enableScheduling') !== 'false';
+
+// Create the stack
+new BusinessContinuityTestingStack(app, 'BusinessContinuityTestingStack', {
+  description: 'Business Continuity Testing Framework with AWS Systems Manager, EventBridge, and Lambda',
+  projectId: projectId,
+  environment: environment,
+  notificationEmail: notificationEmail,
+  enableAutomatedScheduling: enableScheduling,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION
+  },
+  tags: {
+    Project: 'BusinessContinuityTesting',
+    Environment: environment,
+    ManagedBy: 'CDK',
+    Purpose: 'DisasterRecovery'
+  }
+});

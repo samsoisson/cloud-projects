@@ -197,7 +197,17 @@ class ServiceCatalogPortfolioStack(Stack):
                         "iam:ListRolePolicies",
                         "iam:ListAttachedRolePolicies",
                     ],
-                    resources=["*"],
+                    resources=[
+                        f"arn:aws:s3:::service-catalog-templates-{suffix}",
+                        f"arn:aws:s3:::service-catalog-templates-{suffix}/*",
+                        f"arn:aws:lambda:{self.region}:{self.account}:function:serverless-function-{suffix}",
+                        f"arn:aws:iam::{self.account}:role/ServiceCatalogLambdaExecutionRole-{suffix}",
+                    ],
+                    conditions={
+                        "StringEquals": {
+                            "iam:PassedToService": "lambda.amazonaws.com"
+                        }
+                    },
                 )
             ]
         )
