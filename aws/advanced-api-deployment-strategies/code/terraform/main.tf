@@ -11,14 +11,14 @@ locals {
   # Common naming convention
   resource_suffix = random_id.suffix.hex
   common_name     = "${var.project_name}-${local.resource_suffix}"
-  
+
   # Lambda function names with suffix
   blue_function_name  = "${var.blue_function_name}-${local.resource_suffix}"
   green_function_name = "${var.green_function_name}-${local.resource_suffix}"
-  
+
   # API Gateway name with suffix
   api_name = "${var.api_name}-${local.resource_suffix}"
-  
+
   # Common tags
   common_tags = merge(var.default_tags, {
     Name = local.common_name
@@ -92,25 +92,25 @@ resource "aws_sqs_queue" "lambda_dlq" {
   count                     = var.enable_dlq ? 1 : 0
   name                      = "lambda-dlq-${local.resource_suffix}"
   message_retention_seconds = 1209600 # 14 days
-  
+
   tags = local.common_tags
 }
 
 # Blue Lambda Function (Current Production Version)
 resource "aws_lambda_function" "blue_function" {
-  filename         = "blue_function.zip"
-  function_name    = local.blue_function_name
-  role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "index.lambda_handler"
-  runtime         = var.lambda_runtime
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory_size
-  
+  filename      = "blue_function.zip"
+  function_name = local.blue_function_name
+  role          = aws_iam_role.lambda_execution_role.arn
+  handler       = "index.lambda_handler"
+  runtime       = var.lambda_runtime
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
   # Enable X-Ray tracing
   tracing_config {
     mode = var.enable_xray_tracing ? "Active" : "PassThrough"
   }
-  
+
   # VPC configuration (if provided)
   dynamic "vpc_config" {
     for_each = var.vpc_config != null ? [var.vpc_config] : []
@@ -119,7 +119,7 @@ resource "aws_lambda_function" "blue_function" {
       security_group_ids = vpc_config.value.security_group_ids
     }
   }
-  
+
   # Dead Letter Queue configuration
   dynamic "dead_letter_config" {
     for_each = var.enable_dlq ? [1] : []
@@ -127,13 +127,13 @@ resource "aws_lambda_function" "blue_function" {
       target_arn = aws_sqs_queue.lambda_dlq[0].arn
     }
   }
-  
+
   # Lambda Layer (if provided)
   layers = var.lambda_layer_arn != null ? [var.lambda_layer_arn] : []
-  
+
   # Reserved concurrency
   reserved_concurrent_executions = var.lambda_reserved_concurrency
-  
+
   # Environment variables
   environment {
     variables = {
@@ -142,12 +142,12 @@ resource "aws_lambda_function" "blue_function" {
       STAGE       = "production"
     }
   }
-  
+
   tags = merge(local.common_tags, {
     Environment = "blue"
     Version     = var.blue_version
   })
-  
+
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic_execution,
     aws_iam_role_policy.lambda_additional_permissions
@@ -156,19 +156,19 @@ resource "aws_lambda_function" "blue_function" {
 
 # Green Lambda Function (New Version for Testing)
 resource "aws_lambda_function" "green_function" {
-  filename         = "green_function.zip"
-  function_name    = local.green_function_name
-  role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "index.lambda_handler"
-  runtime         = var.lambda_runtime
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory_size
-  
+  filename      = "green_function.zip"
+  function_name = local.green_function_name
+  role          = aws_iam_role.lambda_execution_role.arn
+  handler       = "index.lambda_handler"
+  runtime       = var.lambda_runtime
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
   # Enable X-Ray tracing
   tracing_config {
     mode = var.enable_xray_tracing ? "Active" : "PassThrough"
   }
-  
+
   # VPC configuration (if provided)
   dynamic "vpc_config" {
     for_each = var.vpc_config != null ? [var.vpc_config] : []
@@ -177,7 +177,7 @@ resource "aws_lambda_function" "green_function" {
       security_group_ids = vpc_config.value.security_group_ids
     }
   }
-  
+
   # Dead Letter Queue configuration
   dynamic "dead_letter_config" {
     for_each = var.enable_dlq ? [1] : []
@@ -185,13 +185,13 @@ resource "aws_lambda_function" "green_function" {
       target_arn = aws_sqs_queue.lambda_dlq[0].arn
     }
   }
-  
+
   # Lambda Layer (if provided)
   layers = var.lambda_layer_arn != null ? [var.lambda_layer_arn] : []
-  
+
   # Reserved concurrency
   reserved_concurrent_executions = var.lambda_reserved_concurrency
-  
+
   # Environment variables
   environment {
     variables = {
@@ -200,12 +200,12 @@ resource "aws_lambda_function" "green_function" {
       STAGE       = "staging"
     }
   }
-  
+
   tags = merge(local.common_tags, {
     Environment = "green"
     Version     = var.green_version
   })
-  
+
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic_execution,
     aws_iam_role_policy.lambda_additional_permissions
@@ -413,14 +413,14 @@ resource "aws_api_gateway_stage" "production_stage" {
   # Method-level settings for monitoring and logging
   method_settings {
     method_path = "*/*"
-    
+
     # Enable detailed CloudWatch metrics
     metrics_enabled = var.enable_detailed_metrics
-    
+
     # Configure logging
-    logging_level   = var.enable_api_gateway_logging ? "INFO" : "OFF"
+    logging_level      = var.enable_api_gateway_logging ? "INFO" : "OFF"
     data_trace_enabled = var.enable_api_gateway_logging
-    
+
     # Throttling settings
     throttling_rate_limit  = var.api_throttle_rate_limit
     throttling_burst_limit = var.api_throttle_burst_limit
@@ -439,7 +439,7 @@ resource "aws_api_gateway_stage" "production_stage" {
   }
 
   tags = local.common_tags
-  
+
   depends_on = [aws_api_gateway_account.api_gateway_account]
 }
 
@@ -488,21 +488,21 @@ resource "aws_api_gateway_stage" "staging_stage" {
   # Method-level settings for monitoring and logging
   method_settings {
     method_path = "*/*"
-    
+
     # Enable detailed CloudWatch metrics
     metrics_enabled = var.enable_detailed_metrics
-    
+
     # Configure logging
-    logging_level   = var.enable_api_gateway_logging ? "INFO" : "OFF"
+    logging_level      = var.enable_api_gateway_logging ? "INFO" : "OFF"
     data_trace_enabled = var.enable_api_gateway_logging
-    
+
     # Throttling settings
     throttling_rate_limit  = var.api_throttle_rate_limit
     throttling_burst_limit = var.api_throttle_burst_limit
   }
 
   tags = local.common_tags
-  
+
   depends_on = [aws_api_gateway_account.api_gateway_account]
 }
 
@@ -511,7 +511,7 @@ resource "aws_cloudwatch_log_group" "api_gateway_log_group" {
   count             = var.enable_api_gateway_logging ? 1 : 0
   name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.advanced_deployment_api.id}/${var.api_stage_name}"
   retention_in_days = 14
-  
+
   tags = local.common_tags
 }
 
@@ -534,7 +534,7 @@ resource "aws_cloudwatch_metric_alarm" "api_4xx_errors" {
   }
 
   treat_missing_data = "notBreaching"
-  
+
   tags = local.common_tags
 }
 
@@ -557,7 +557,7 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx_errors" {
   }
 
   treat_missing_data = "notBreaching"
-  
+
   tags = local.common_tags
 }
 
@@ -580,7 +580,7 @@ resource "aws_cloudwatch_metric_alarm" "api_high_latency" {
   }
 
   treat_missing_data = "notBreaching"
-  
+
   tags = local.common_tags
 }
 
@@ -602,7 +602,7 @@ resource "aws_cloudwatch_metric_alarm" "blue_lambda_errors" {
   }
 
   treat_missing_data = "notBreaching"
-  
+
   tags = local.common_tags
 }
 
@@ -624,7 +624,7 @@ resource "aws_cloudwatch_metric_alarm" "green_lambda_errors" {
   }
 
   treat_missing_data = "notBreaching"
-  
+
   tags = local.common_tags
 }
 
@@ -633,6 +633,8 @@ resource "aws_api_gateway_domain_name" "custom_domain" {
   count           = var.custom_domain_name != null ? 1 : 0
   domain_name     = var.custom_domain_name
   certificate_arn = var.certificate_arn
+
+  security_policy = "TLS_1_2"
 
   endpoint_configuration {
     types = ["REGIONAL"]

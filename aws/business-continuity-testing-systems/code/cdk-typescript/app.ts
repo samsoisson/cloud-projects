@@ -18,17 +18,17 @@ interface BusinessContinuityTestingStackProps extends cdk.StackProps {
    * Email address for SNS notifications
    */
   readonly notificationEmail?: string;
-  
+
   /**
    * Project identifier for resource naming
    */
   readonly projectId?: string;
-  
+
   /**
    * Environment name (dev, staging, prod)
    */
   readonly environment?: string;
-  
+
   /**
    * Enable automated scheduling of tests
    */
@@ -121,6 +121,7 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
     });
 
     // Add comprehensive policy for BC testing operations
+    // NOTE: Do NOT include iam:PassRole here to avoid privilege escalation via PassRole.
     role.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -134,8 +135,7 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
         'cloudwatch:*',
         'sns:*',
         'logs:*',
-        'backup:*',
-        'iam:PassRole'
+        'backup:*'
       ],
       resources: ['*']
     }));
@@ -220,7 +220,7 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
     projectId: string,
     tags: Record<string, string>
   ): { backupValidation: ssm.CfnDocument; databaseRecovery: ssm.CfnDocument; applicationFailover: ssm.CfnDocument } {
-    
+
     // Backup Validation Automation Document
     const backupValidationDocument = new ssm.CfnDocument(this, 'BackupValidationDocument', {
       documentType: 'Automation',
