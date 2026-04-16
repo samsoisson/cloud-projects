@@ -1,129 +1,34 @@
-name: Deploy Static Site
-
-on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'README.md'
-      - '.publish/data/learning-paths.json'
-      - '.publish/templates/site/index.html'
-      - '.publish/scripts/parse_awesome_cloud.py'
-      - '.publish/scripts/build_site.py'
-      - '.publish/docs/**'
-  workflow_dispatch:
-    inputs:
-      regenerate_data:
-        description: 'Force regenerate projects.json'
-        required: false
-        default: 'false'
-        type: boolean
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Check if README changed
-        id: readme-changed
-        run: |
-          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "README.md"; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check if projects.json exists
-        id: projects-exists
-        run: |
-          if [ -f .publish/data/projects.json ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Parse README.md to projects.json
-        if: steps.readme-changed.outputs.changed == 'true' || github.event.inputs.regenerate_data == 'true' || steps.projects-exists.outputs.exists == 'false'
-        run: |
-          echo "📖 Parsing README.md..."
-          python .publish/scripts/parse_awesome_cloud.py README.md \
-            --output .publish/data/projects.json \
-            --repo-url "https://github.com/${{ github.repository }}"
-
-      - name: Ensure learning-paths.json exists
-        run: |
-          if [ ! -f .publish/data/learning-paths.json ]; then
-            echo "[]" > .publish/data/learning-paths.json
-            echo "ℹ️  Created empty learning-paths.json"
-          fi
-
-      - name: Validate data files
-        run: |
-          echo "📋 Validating JSON files..."
-          python -c "
-          import json
-          import sys
-
-          try:
-              with open('.publish/data/projects.json', 'r') as f:
-                  projects = json.load(f)
-                  print(f'✅ projects.json: {len(projects)} projects')
-          except Exception as e:
-              print(f'❌ Error in projects.json: {e}')
-              sys.exit(1)
-
-          try:
-              with open('.publish/data/learning-paths.json', 'r') as f:
-                  paths = json.load(f)
-                  print(f'✅ learning-paths.json: {len(paths)} paths')
-          except Exception as e:
-              print(f'❌ Error in learning-paths.json: {e}')
-              sys.exit(1)
-          "
-
-      - name: Build static site
-        run: |
-          echo "🔨 Building site..."
-          python .publish/scripts/build_site.py
-
-      - name: Commit updated projects.json (if regenerated)
-        if: steps.readme-changed.outputs.changed == 'true' || github.event.inputs.regenerate_data == 'true' || steps.projects-exists.outputs.exists == 'false'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add -f .publish/data/projects.json
-          git diff --staged --quiet || git commit -m "🔄 Auto-update projects.json from README.md"
-          git push || echo "Nothing to push"
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./.publish/docs
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+role.addToPolicy(new iam.PolicyStatement({
+  effect: iam.Effect.ALLOW,
+  actions: [
+    'ssm:Describe*',
+    'ssm:Get*',
+    'ssm:List*',
+    'ec2:Describe*',
+    'ec2:Get*',
+    'ec2:List*',
+    'rds:Describe*',
+    'rds:List*',
+    's3:Get*',
+    's3:List*',
+    'lambda:List*',
+    'lambda:Get*',
+    'states:List*',
+    'states:Describe*',
+    'events:List*',
+    'events:Describe*',
+    'cloudwatch:Describe*',
+    'cloudwatch:Get*',
+    'cloudwatch:List*',
+    'sns:List*',
+    'sns:Get*',
+    'logs:Describe*',
+    'logs:Get*',
+    'logs:List*',
+    'backup:List*',
+    'backup:Describe*'
+    // Write permissions have been removed from the workflow level and should be assigned at the job level as appropriate.
+  ],
+  resources: ['*']
+}));
+// NOTE: Write permissions have been removed from the workflow level and should be assigned at the job level as appropriate.
