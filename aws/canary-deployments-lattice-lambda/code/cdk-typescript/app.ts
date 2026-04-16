@@ -7,7 +7,6 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as kms from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 import { AwsSolutionsChecks } from 'cdk-nag';
 
@@ -25,7 +24,7 @@ interface CanaryDeploymentStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for implementing progressive canary deployments using VPC Lattice and Lambda
- *
+ * 
  * This stack creates:
  * - Two Lambda function versions (production and canary)
  * - VPC Lattice service network and service for weighted routing
@@ -53,11 +52,6 @@ export class CanaryDeploymentStack extends cdk.Stack {
       throw new Error('Canary weight and production weight must sum to 100');
     }
 
-    const lambdaEnvironmentKey = new kms.Key(this, 'LambdaEnvironmentKey', {
-      description: 'KMS key for Lambda environment variable encryption',
-      enableKeyRotation: true,
-    });
-
     // Create IAM execution role for Lambda functions with least privilege
     const lambdaExecutionRole = new iam.Role(this, 'LambdaExecutionRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
@@ -67,8 +61,12 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // NOTE: Do NOT grant lambda:InvokeFunction broadly. This is a known privilege escalation vector.
-    // VPC Lattice invokes the functions via resource-based permissions added below.
+    // Add VPC Lattice invoke permissions
+    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: ['*'], // Will be restricted to specific functions after creation
+    }));
 
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
@@ -101,7 +99,10 @@ def handler(event, context):
       description: 'Production version for canary deployment',
       architecture: lambda.Architecture.ARM_64, // Cost-optimized ARM architecture
       logRetention: logs.RetentionDays.ONE_WEEK, // Security best practice
-      environmentEncryption: lambdaEnvironmentKey,
+      environmentEncryption: new cdk.aws_kms.Key(this, 'LambdaEnvironmentKey', {
+        description: 'KMS key for Lambda environment variable encryption',
+        enableKeyRotation: true,
+      }),
     });
 
     // Create canary Lambda function (version 2) with enhanced features
@@ -169,7 +170,7 @@ def handler(event, context):
       description: 'Canary version with enhanced features',
       architecture: lambda.Architecture.ARM_64,
       logRetention: logs.RetentionDays.ONE_WEEK,
-      environmentEncryption: lambdaEnvironmentKey,
+      environmentEncryption: this.productionFunction.environmentEncryption,
     });
 
     // Grant CloudWatch permissions to canary function for custom metrics
@@ -272,7 +273,7 @@ def handler(event, context):
       serviceIdentifier: this.latticeService.attrId,
     });
 
-    // Grant VPC Lattice permission to invoke Lambda functions (resource-based permissions)
+    // Grant VPC Lattice permission to invoke Lambda functions
     this.productionFunction.addPermission('AllowVPCLatticeInvoke', {
       principal: new iam.ServicePrincipal('vpc-lattice.amazonaws.com'),
       action: 'lambda:InvokeFunction',
@@ -446,7 +447,7 @@ def handler(event, context):
       this.rollbackTopic.grantPublish(rollbackFunction);
 
       // Subscribe rollback function to all canary alarms
-      new sns.Subscription(this, 'RollbackSubscription', {
+      const rollbackSubscription = new sns.Subscription(this, 'RollbackSubscription', {
         topic: this.rollbackTopic,
         endpoint: rollbackFunction.functionArn,
         protocol: sns.SubscriptionProtocol.LAMBDA,
@@ -537,7 +538,7 @@ const stack = new CanaryDeploymentStack(app, 'CanaryDeploymentStack', {
   canaryWeight: 10,      // 10% traffic to canary
   productionWeight: 90,  // 90% traffic to production
   enableAutoRollback: true,
-
+  
   // Enable termination protection for production deployments
   terminationProtection: false, // Set to true for production
 });

@@ -28,7 +28,6 @@ from aws_cdk import (
     CfnOutput,
     Duration,
     RemovalPolicy,
-    Aws,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elbv2,
@@ -47,7 +46,7 @@ from constructs import Construct
 class AdvancedBlueGreenDeploymentStack(Stack):
     """
     Advanced Blue-Green Deployment Stack
-
+    
     Creates a comprehensive blue-green deployment infrastructure supporting
     both ECS and Lambda with automated rollback and monitoring capabilities.
     """
@@ -58,7 +57,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         # Stack parameters
         self.project_name = self.node.try_get_context("project_name") or "advanced-deployment"
         self.environment_name = self.node.try_get_context("environment") or "production"
-
+        
         # Create core infrastructure
         self._create_vpc_infrastructure()
         self._create_security_groups()
@@ -70,7 +69,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
         self._create_codedeploy_applications()
         self._create_monitoring_and_alarms()
         self._create_deployment_hooks()
-
+        
         # Add stack-level tags
         Tags.of(self).add("Project", self.project_name)
         Tags.of(self).add("Environment", self.environment_name)
@@ -145,13 +144,13 @@ class AdvancedBlueGreenDeploymentStack(Stack):
             description="Security group for Application Load Balancer",
             security_group_name=f"{self.project_name}-alb-sg",
         )
-
+        
         self.alb_security_group.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(80),
             description="Allow HTTP traffic",
         )
-
+        
         self.alb_security_group.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(443),
@@ -165,7 +164,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
             description="Security group for ECS tasks",
             security_group_name=f"{self.project_name}-ecs-sg",
         )
-
+        
         self.ecs_security_group.add_ingress_rule(
             peer=ec2.Peer.security_group_id(self.alb_security_group.security_group_id),
             connection=ec2.Port.tcp(8080),
@@ -263,6 +262,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
                             effect=iam.Effect.ALLOW,
                             actions=[
                                 "codedeploy:PutLifecycleEventHookExecutionStatus",
+                                "lambda:InvokeFunction",
                                 "cloudwatch:PutMetricData",
                                 "ecs:DescribeServices",
                                 "ecs:DescribeTasks",
@@ -469,10 +469,10 @@ from datetime import datetime
 def lambda_handler(event, context):
     version = os.environ.get('VERSION', '1.0.0')
     environment = os.environ.get('ENVIRONMENT', 'blue')
-
+    
     http_method = event.get('httpMethod', 'GET')
     path = event.get('path', '/')
-
+    
     if path == '/health':
         return health_check(version, environment)
     elif path == '/api/lambda-data':
@@ -510,13 +510,13 @@ def get_lambda_data(version, environment):
         'timestamp': datetime.utcnow().isoformat(),
         'execution_time_ms': random.randint(50, 200)
     }
-
+    
     if version == '2.0.0':
         data['new_feature'] = 'Enhanced Lambda processing'
         data['lambda_data'].append({
             'id': 4, 'type': 'lambda-enhanced', 'value': random.random()
         })
-
+    
     return {
         'statusCode': 200,
         'headers': {'Content-Type': 'application/json'},
@@ -729,20 +729,20 @@ def lambda_handler(event, context):
     try:
         deployment_id = event['DeploymentId']
         lifecycle_event_hook_execution_id = event['LifecycleEventHookExecutionId']
-
+        
         logger.info(f"Running pre-deployment validation for deployment: {deployment_id}")
-
+        
         # Simulate validation checks
         validation_result = validate_deployment_readiness(event)
-
+        
         status = 'Succeeded' if validation_result['success'] else 'Failed'
-
+        
         codedeploy.put_lifecycle_event_hook_execution_status(
             deploymentId=deployment_id,
             lifecycleEventHookExecutionId=lifecycle_event_hook_execution_id,
             status=status
         )
-
+        
         return {'statusCode': 200}
     except Exception as e:
         logger.error(f"Error in pre-deployment hook: {str(e)}")
@@ -781,20 +781,20 @@ def lambda_handler(event, context):
     try:
         deployment_id = event['DeploymentId']
         lifecycle_event_hook_execution_id = event['LifecycleEventHookExecutionId']
-
+        
         logger.info(f"Running post-deployment validation for deployment: {deployment_id}")
-
+        
         # Simulate validation checks
         validation_result = validate_deployment_success(event)
-
+        
         status = 'Succeeded' if validation_result['success'] else 'Failed'
-
+        
         codedeploy.put_lifecycle_event_hook_execution_status(
             deploymentId=deployment_id,
             lifecycleEventHookExecutionId=lifecycle_event_hook_execution_id,
             status=status
         )
-
+        
         # Record metrics
         cloudwatch.put_metric_data(
             Namespace='Deployment/Validation',
@@ -809,7 +809,7 @@ def lambda_handler(event, context):
                 }
             ]
         )
-
+        
         return {'statusCode': 200}
     except Exception as e:
         logger.error(f"Error in post-deployment hook: {str(e)}")
@@ -831,17 +831,12 @@ def validate_deployment_success(event):
             role=self.hooks_lambda_role,
         )
 
-        codedeploy_hook_resource_arn = (
-            f"arn:{Aws.PARTITION}:codedeploy:{Aws.REGION}:{Aws.ACCOUNT_ID}:deploymentgroup:"
-            f"{self.codedeploy_ecs_app.application_name}/{self.codedeploy_ecs_deployment_group.deployment_group_name}"
-        )
-
-        # Grant permissions for hooks to interact with CodeDeploy (restricted resource)
+        # Grant permissions for hooks to interact with CodeDeploy
         self.pre_deployment_hook.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["codedeploy:PutLifecycleEventHookExecutionStatus"],
-                resources=[codedeploy_hook_resource_arn],
+                resources=["*"],
             )
         )
 
@@ -852,7 +847,7 @@ def validate_deployment_success(event):
                     "codedeploy:PutLifecycleEventHookExecutionStatus",
                     "cloudwatch:PutMetricData",
                 ],
-                resources=[codedeploy_hook_resource_arn],
+                resources=["*"],
             )
         )
 
@@ -939,13 +934,13 @@ def validate_deployment_success(event):
 def main():
     """Main application entry point."""
     app = App()
-
+    
     # Get environment configuration
     env = Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
         region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
     )
-
+    
     # Create the stack
     stack = AdvancedBlueGreenDeploymentStack(
         app,
@@ -953,10 +948,10 @@ def main():
         env=env,
         description="Advanced Blue-Green Deployments with ECS, Lambda, and CodeDeploy",
     )
-
+    
     # Create outputs
     stack._create_outputs()
-
+    
     # Synthesize the app
     app.synth()
 

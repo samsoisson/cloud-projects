@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Constants for weather data generation
 WEATHER_CONDITIONS = [
-    "Sunny", "Partly Cloudy", "Cloudy", "Light Rain",
+    "Sunny", "Partly Cloudy", "Cloudy", "Light Rain", 
     "Heavy Rain", "Thunderstorm", "Snow", "Fog", "Windy"
 ]
 
@@ -43,7 +43,7 @@ TEMPERATURE_RANGES = {
 
 CITY_CLIMATES = {
     "london": "temperate",
-    "paris": "temperate",
+    "paris": "temperate", 
     "tokyo": "temperate",
     "sydney": "temperate",
     "new york": "temperate",
@@ -61,35 +61,35 @@ CITY_CLIMATES = {
 def generate_mock_weather_data(city: str) -> Dict[str, Any]:
     """
     Generate realistic mock weather data for a given city.
-
+    
     Args:
         city: Name of the city to generate weather data for
-
+    
     Returns:
         Dictionary containing mock weather information
     """
     import random
-
+    
     # Normalize city name for lookup
     city_normalized = city.lower().strip()
-
+    
     # Determine climate zone
     climate = CITY_CLIMATES.get(city_normalized, "temperate")
     temp_range = TEMPERATURE_RANGES[climate]
-
+    
     # Generate random but realistic values
     temperature = random.randint(temp_range[0], temp_range[1])
     condition = random.choice(WEATHER_CONDITIONS)
     humidity = random.randint(30, 90)
     wind_speed = random.randint(0, 25)
     pressure = random.randint(980, 1030)
-
+    
     # Adjust condition based on climate
     if climate == "tropical" and condition in ["Snow"]:
         condition = "Heavy Rain"
     elif climate == "arctic" and condition in ["Thunderstorm"]:
         condition = "Snow"
-
+    
     return {
         "city": city,
         "country": get_country_for_city(city_normalized),
@@ -112,10 +112,10 @@ def generate_mock_weather_data(city: str) -> Dict[str, Any]:
 def get_country_for_city(city: str) -> str:
     """
     Return country information for known cities.
-
+    
     Args:
         city: Normalized city name
-
+        
     Returns:
         Country name or "Unknown"
     """
@@ -123,7 +123,7 @@ def get_country_for_city(city: str) -> str:
         "london": "United Kingdom",
         "paris": "France",
         "tokyo": "Japan",
-        "sydney": "Australia",
+        "sydney": "Australia", 
         "new york": "United States",
         "miami": "United States",
         "singapore": "Singapore",
@@ -134,14 +134,14 @@ def get_country_for_city(city: str) -> str:
         "reykjavik": "Iceland",
         "anchorage": "United States"
     }
-
+    
     return city_countries.get(city, "Unknown")
 
 
 def create_cors_headers() -> Dict[str, str]:
     """
     Create CORS headers for cross-origin requests.
-
+    
     Returns:
         Dictionary of CORS headers
     """
@@ -156,11 +156,11 @@ def create_cors_headers() -> Dict[str, str]:
 def create_error_response(message: str, status_code: int = 500) -> Tuple[str, int, Dict[str, str]]:
     """
     Create a standardized error response.
-
+    
     Args:
         message: Error message to return
         status_code: HTTP status code
-
+        
     Returns:
         Tuple of (response_body, status_code, headers)
     """
@@ -170,33 +170,33 @@ def create_error_response(message: str, status_code: int = 500) -> Tuple[str, in
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "status_code": status_code
     }
-
+    
     headers = create_cors_headers()
     headers['Content-Type'] = 'application/json'
-
+    
     return json.dumps(error_response), status_code, headers
 
 
 def validate_city_parameter(city: str) -> Tuple[bool, str]:
     """
     Validate the city parameter from the request.
-
+    
     Args:
         city: City name to validate
-
+        
     Returns:
         Tuple of (is_valid, error_message)
     """
     if not city:
         return False, "City parameter cannot be empty"
-
+    
     if len(city) > 100:
         return False, "City name is too long (maximum 100 characters)"
-
+    
     # Check for potentially malicious input
     if any(char in city for char in ['<', '>', '"', "'", '&']):
         return False, "City name contains invalid characters"
-
+    
     return True, ""
 
 
@@ -204,81 +204,81 @@ def validate_city_parameter(city: str) -> Tuple[bool, str]:
 def weather_api(request) -> Union[Tuple[str, int, Dict[str, str]], Tuple[str, int]]:
     """
     HTTP Cloud Function for weather data retrieval.
-
+    
     This function handles HTTP requests to provide weather information for cities.
     It supports CORS for web applications and returns structured JSON responses.
-
+    
     Args:
         request: Flask request object containing HTTP request data
-
+        
     Returns:
         HTTP response with weather data or error information
     """
-
+    
     # Log the incoming request for monitoring
     logger.info(f"Weather API request received: {request.method} {request.path}")
     logger.info(f"Request args: {dict(request.args)}")
     logger.info(f"Request headers: {dict(request.headers)}")
-
+    
     try:
         # Handle CORS preflight requests
         if request.method == 'OPTIONS':
             logger.info("Handling CORS preflight request")
             return ('', 204, create_cors_headers())
-
+        
         # Only allow GET and POST methods
         if request.method not in ['GET', 'POST']:
             logger.warning(f"Unsupported HTTP method: {request.method}")
             return create_error_response(
-                f"Method {request.method} not allowed. Use GET or POST.",
+                f"Method {request.method} not allowed. Use GET or POST.", 
                 405
             )
-
+        
         # Extract city parameter from request
         if request.method == 'GET':
             city = request.args.get('city', '').strip()
         else:  # POST
             request_json = request.get_json() or {}
             city = request_json.get('city', '').strip()
-
+        
         # Use default city if none provided
         if not city:
             city = 'London'
             logger.info("No city provided, using default: London")
-
+        
         # Validate city parameter
         is_valid, error_message = validate_city_parameter(city)
         if not is_valid:
             logger.warning(f"Invalid city parameter: {error_message}")
             return create_error_response(error_message, 400)
-
+        
         logger.info(f"Generating weather data for city: {city}")
-
+        
         # Generate mock weather data
         weather_data = generate_mock_weather_data(city)
-
+        
         # Add request metadata
         weather_data["request_id"] = request.headers.get('X-Request-ID', 'unknown')
         weather_data["function_name"] = os.environ.get('K_SERVICE', 'weather-api')
         weather_data["function_version"] = os.environ.get('K_REVISION', '1')
-
+        
         # Create successful response
         headers = create_cors_headers()
         headers['Content-Type'] = 'application/json'
-
+        
         logger.info(f"Successfully generated weather data for {city}")
-
+        
         return json.dumps(weather_data), 200, headers
-
+        
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error: {str(e)}")
         return create_error_response("Invalid JSON in request body", 400)
-
+        
     except Exception as e:
         logger.error(f"Unexpected error in weather_api: {str(e)}")
         logger.exception("Full traceback:")
         return create_error_response(
-            "An unexpected error occurred while fetching weather data",
+            "An unexpected error occurred while fetching weather data", 
             500
         )
 
@@ -287,7 +287,7 @@ def weather_api(request) -> Union[Tuple[str, int, Dict[str, str]], Tuple[str, in
 def health_check() -> Dict[str, Any]:
     """
     Simple health check function for monitoring purposes.
-
+    
     Returns:
         Dictionary with health status information
     """
@@ -302,20 +302,20 @@ def health_check() -> Dict[str, Any]:
 # Entry point for local testing (optional)
 if __name__ == "__main__":
     from flask import Flask, request as flask_request
-
+    
     app = Flask(__name__)
-
+    
     @app.route('/', methods=['GET', 'POST', 'OPTIONS'])
     def local_weather_api():
         return weather_api(flask_request)
-
+    
     @app.route('/health', methods=['GET'])
     def local_health_check():
         return health_check()
-
+    
     print("Starting local development server...")
     print("Weather API available at: http://localhost:8080")
     print("Health check available at: http://localhost:8080/health")
     print("Example: http://localhost:8080?city=Tokyo")
-
-    app.run(host='127.0.0.1', port=8080, debug=True)
+    
+    app.run(host='0.0.0.0', port=8080, debug=True)

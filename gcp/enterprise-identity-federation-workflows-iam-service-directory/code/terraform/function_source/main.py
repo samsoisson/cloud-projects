@@ -13,8 +13,6 @@ import json
 import logging
 import os
 import datetime
-import re
-import hashlib
 from typing import Dict, Any, Optional, Tuple
 from google.cloud import secretmanager
 from google.cloud import servicedirectory
@@ -35,52 +33,18 @@ REGION = "${region}"
 FEDERATION_CONFIG_SECRET = "${federation_config_secret}"
 IDP_CONFIG_SECRET = "${idp_config_secret}"
 
-
 class IdentityProvisioningError(Exception):
     """Custom exception for identity provisioning errors."""
     pass
 
-
-def _sanitize_for_log(value: Any, max_len: int = 128) -> str:
-    """
-    Sanitize potentially user-controlled data before logging to prevent log injection
-    and reflection of unsanitized input.
-
-    - Removes CR/LF/TAB and other control characters
-    - Restricts to a conservative character set
-    - Truncates to a maximum length
-    - Falls back to a stable hash if the result is empty
-    """
-    if value is None:
-        return "unknown"
-
-    s = str(value)
-
-    # Remove control characters (including CR/LF) to prevent log forging/injection
-    s = re.sub(r"[\x00-\x1f\x7f]", "", s)
-
-    # Keep a conservative set of characters to avoid confusing log parsers
-    s = re.sub(r"[^a-zA-Z0-9@._:+/\- ]", "_", s)
-
-    s = s.strip()
-    if len(s) > max_len:
-        s = s[:max_len] + "â?¦"
-
-    if not s:
-        digest = hashlib.sha256(str(value).encode("utf-8", errors="ignore")).hexdigest()[:12]
-        return f"redacted:{digest}"
-
-    return s
-
-
 class IdentityProvisioner:
     """Handles enterprise identity provisioning workflows."""
-
+    
     def __init__(self):
         """Initialize the identity provisioner with Google Cloud clients."""
         self.project_id = PROJECT_ID
         self.region = REGION
-
+        
         # Initialize Google Cloud clients
         try:
             self.secret_client = secretmanager.SecretManagerServiceClient()
@@ -90,17 +54,17 @@ class IdentityProvisioner:
         except Exception as e:
             logger.error(f"Failed to initialize Google Cloud clients: {e}")
             raise IdentityProvisioningError(f"Client initialization failed: {e}")
-
+    
     def get_secret(self, secret_name: str) -> Dict[str, Any]:
         """
         Retrieve and parse a secret from Secret Manager.
-
+        
         Args:
             secret_name: Name of the secret to retrieve
-
+            
         Returns:
             Parsed secret data as dictionary
-
+            
         Raises:
             IdentityProvisioningError: If secret retrieval fails
         """
@@ -114,66 +78,66 @@ class IdentityProvisioner:
         except Exception as e:
             logger.error(f"Failed to retrieve secret {secret_name}: {e}")
             raise IdentityProvisioningError(f"Secret retrieval failed: {e}")
-
+    
     def validate_identity_request(self, request_data: Dict[str, Any]) -> bool:
         """
         Validate the identity provisioning request.
-
+        
         Args:
             request_data: Request data containing identity information
-
+            
         Returns:
             True if request is valid, False otherwise
         """
         required_fields = ['identity', 'service', 'access_level']
-
+        
         for field in required_fields:
             if field not in request_data:
                 logger.warning(f"Missing required field: {field}")
                 return False
-
+        
         # Validate access level
         valid_access_levels = ['read-only', 'standard', 'admin']
         if request_data['access_level'] not in valid_access_levels:
             logger.warning(f"Invalid access level: {request_data['access_level']}")
             return False
-
+        
         # Validate identity format
         identity = request_data['identity']
         if not isinstance(identity, str) or len(identity) == 0:
             logger.warning("Invalid identity format")
             return False
-
+        
         # Validate service name
         service = request_data['service']
         if not isinstance(service, str) or len(service) == 0:
             logger.warning("Invalid service name")
             return False
-
+        
         return True
-
+    
     def register_service_endpoint(
-        self,
-        service_name: str,
-        identity: str,
+        self, 
+        service_name: str, 
+        identity: str, 
         access_level: str,
         namespace_path: str
     ) -> Dict[str, str]:
         """
         Register or update a service endpoint in Service Directory.
-
+        
         Args:
             service_name: Name of the service
             identity: User identity
             access_level: Access level for the identity
             namespace_path: Full path to the Service Directory namespace
-
+            
         Returns:
             Service registration details
         """
         try:
             service_path = f"{namespace_path}/services/{service_name}"
-
+            
             # Create metadata for the service registration
             metadata = {
                 'user_identity': identity,
@@ -182,7 +146,7 @@ class IdentityProvisioner:
                 'provisioner': 'cloud-function',
                 'version': '1.0'
             }
-
+            
             # Update service metadata
             service_request = {
                 'service': {
@@ -191,45 +155,41 @@ class IdentityProvisioner:
                 },
                 'update_mask': {'paths': ['metadata']}
             }
-
+            
             # Note: In a real implementation, you would create or update the service
             # For this example, we'll simulate the registration
-            logger.info(
-                "Registering service endpoint: %s for identity: %s",
-                _sanitize_for_log(service_name),
-                _sanitize_for_log(identity),
-            )
-
+            logger.info(f"Registering service endpoint: {service_name} for identity: {identity}")
+            
             return {
                 'service_path': service_path,
                 'metadata': metadata,
                 'status': 'registered'
             }
-
+            
         except Exception as e:
             logger.error(f"Failed to register service endpoint: {e}")
             raise IdentityProvisioningError(f"Service registration failed: {e}")
-
+    
     def apply_access_policies(
-        self,
-        identity: str,
-        access_level: str,
+        self, 
+        identity: str, 
+        access_level: str, 
         service_name: str
     ) -> Dict[str, str]:
         """
         Apply appropriate access policies based on the access level.
-
+        
         Args:
             identity: User identity
             access_level: Requested access level
             service_name: Target service name
-
+            
         Returns:
             Applied policy details
         """
         try:
             policies_applied = []
-
+            
             if access_level == 'read-only':
                 policies_applied.extend([
                     'roles/viewer',
@@ -246,15 +206,9 @@ class IdentityProvisioner:
                     'roles/servicedirectory.admin',
                     'roles/secretmanager.admin'
                 ])
-
-            logger.info(
-                "Applied policies for identity=%s service=%s access_level=%s policy_count=%d",
-                _sanitize_for_log(identity),
-                _sanitize_for_log(service_name),
-                _sanitize_for_log(access_level),
-                len(policies_applied),
-            )
-
+            
+            logger.info(f"Applied policies {policies_applied} for identity {identity}")
+            
             return {
                 'identity': identity,
                 'service': service_name,
@@ -262,21 +216,21 @@ class IdentityProvisioner:
                 'access_level': access_level,
                 'applied_at': datetime.datetime.utcnow().isoformat()
             }
-
+            
         except Exception as e:
             logger.error(f"Failed to apply access policies: {e}")
             raise IdentityProvisioningError(f"Policy application failed: {e}")
-
+    
     def audit_provisioning_event(
-        self,
-        identity: str,
-        service_name: str,
-        access_level: str,
+        self, 
+        identity: str, 
+        service_name: str, 
+        access_level: str, 
         status: str
     ) -> None:
         """
         Log provisioning events for audit and compliance.
-
+        
         Args:
             identity: User identity
             service_name: Service name
@@ -294,20 +248,17 @@ class IdentityProvisioner:
             'project_id': self.project_id,
             'region': self.region
         }
-
+        
         # Log the audit event (in production, this might go to Cloud Logging or a SIEM)
-        logger.info(
-            "AUDIT_EVENT: %s",
-            json.dumps(audit_event, ensure_ascii=True, separators=(",", ":"))
-        )
-
+        logger.info(f"AUDIT_EVENT: {json.dumps(audit_event)}")
+    
     def provision_identity(self, request_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """
         Main identity provisioning workflow.
-
+        
         Args:
             request_data: Request containing identity provisioning details
-
+            
         Returns:
             Tuple of (response_data, http_status_code)
         """
@@ -317,43 +268,38 @@ class IdentityProvisioner:
                 return {
                     'error': 'Invalid request format or missing required fields'
                 }, 400
-
+            
             identity = request_data['identity']
             service_name = request_data['service']
             access_level = request_data['access_level']
-
-            logger.info(
-                "Starting identity provisioning for identity=%s service=%s access_level=%s",
-                _sanitize_for_log(identity),
-                _sanitize_for_log(service_name),
-                _sanitize_for_log(access_level),
-            )
-
+            
+            logger.info(f"Starting identity provisioning for {identity}")
+            
             # Retrieve configuration secrets
             federation_config = self.get_secret(FEDERATION_CONFIG_SECRET)
             idp_config = self.get_secret(IDP_CONFIG_SECRET)
-
+            
             # Build namespace path
             namespace_path = (
                 f"projects/{self.project_id}/locations/{self.region}/"
                 f"namespaces/{federation_config['namespace']}"
             )
-
+            
             # Register service endpoint
             service_registration = self.register_service_endpoint(
                 service_name, identity, access_level, namespace_path
             )
-
+            
             # Apply access policies
             policy_result = self.apply_access_policies(
                 identity, access_level, service_name
             )
-
+            
             # Audit the provisioning event
             self.audit_provisioning_event(
                 identity, service_name, access_level, 'success'
             )
-
+            
             # Prepare successful response
             response = {
                 'status': 'success',
@@ -369,10 +315,10 @@ class IdentityProvisioner:
                     'service_account_email': federation_config['service_account_email']
                 }
             }
-
-            logger.info("Successfully provisioned identity request")
+            
+            logger.info(f"Successfully provisioned identity for {identity}")
             return response, 200
-
+            
         except IdentityProvisioningError as e:
             self.audit_provisioning_event(
                 request_data.get('identity', 'unknown'),
@@ -391,10 +337,8 @@ class IdentityProvisioner:
             )
             return {'error': 'Internal server error'}, 500
 
-
 # Global provisioner instance
 provisioner = None
-
 
 def get_provisioner() -> IdentityProvisioner:
     """Get or create the global provisioner instance."""
@@ -403,15 +347,14 @@ def get_provisioner() -> IdentityProvisioner:
         provisioner = IdentityProvisioner()
     return provisioner
 
-
 @functions_framework.http
 def provision_identity(request: Request) -> Tuple[Dict[str, Any], int]:
     """
     HTTP Cloud Function entry point for identity provisioning.
-
+    
     Args:
         request: Flask request object
-
+        
     Returns:
         HTTP response tuple (data, status_code)
     """
@@ -421,47 +364,43 @@ def provision_identity(request: Request) -> Tuple[Dict[str, Any], int]:
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization'
     }
-
+    
     # Handle preflight OPTIONS request
     if request.method == 'OPTIONS':
         return ('', 204, headers)
-
+    
     # Only allow POST requests
     if request.method != 'POST':
         return ({'error': 'Method not allowed'}, 405, headers)
-
+    
     try:
         # Parse request JSON
         request_json = request.get_json(silent=True)
         if not request_json:
             return ({'error': 'Invalid JSON or empty request body'}, 400, headers)
-
+        
         # Log the incoming request (excluding sensitive data)
-        logger.info(
-            "Received provisioning request identity=%s",
-            _sanitize_for_log(request_json.get('identity', 'unknown'))
-        )
-
+        logger.info(f"Received provisioning request for identity: {request_json.get('identity', 'unknown')}")
+        
         # Get provisioner and process request
         identity_provisioner = get_provisioner()
         response_data, status_code = identity_provisioner.provision_identity(request_json)
-
+        
         return (response_data, status_code, headers)
-
+        
     except Exception as e:
         logger.error(f"Function execution error: {e}")
         return ({'error': 'Function execution failed'}, 500, headers)
-
 
 # Health check endpoint for monitoring
 @functions_framework.http
 def health_check(request: Request) -> Tuple[Dict[str, Any], int]:
     """
     Health check endpoint for monitoring.
-
+    
     Args:
         request: Flask request object
-
+        
     Returns:
         Health status response
     """
@@ -474,7 +413,7 @@ def health_check(request: Request) -> Tuple[Dict[str, Any], int]:
             'region': REGION,
             'function_version': '1.0'
         }
-
+        
         # Verify secret access
         try:
             provisioner_instance = get_provisioner()
@@ -483,9 +422,9 @@ def health_check(request: Request) -> Tuple[Dict[str, Any], int]:
         except Exception:
             health_status['secret_access'] = 'failed'
             health_status['status'] = 'degraded'
-
+        
         return health_status, 200
-
+        
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return {
@@ -494,18 +433,17 @@ def health_check(request: Request) -> Tuple[Dict[str, Any], int]:
             'timestamp': datetime.datetime.utcnow().isoformat()
         }, 500
 
-
 if __name__ == '__main__':
     # For local testing
     import flask
     app = flask.Flask(__name__)
-
+    
     @app.route('/', methods=['POST'])
     def local_provision():
         return provision_identity(flask.request)
-
+    
     @app.route('/health', methods=['GET'])
     def local_health():
         return health_check(flask.request)
-
+    
     app.run(debug=True, host='0.0.0.0', port=8080)

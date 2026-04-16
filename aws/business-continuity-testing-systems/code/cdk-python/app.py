@@ -34,7 +34,7 @@ from constructs import Construct
 class BusinessContinuityTestingStack(Stack):
     """
     CDK Stack for Business Continuity Testing Framework.
-
+    
     Creates automation documents, Lambda functions, EventBridge rules,
     and monitoring infrastructure for comprehensive BC testing.
     """
@@ -45,7 +45,7 @@ class BusinessContinuityTestingStack(Stack):
         # Stack parameters
         self.project_id = self.node.try_get_context("project_id") or "bctest"
         self.notification_email = self.node.try_get_context("notification_email") or "admin@example.com"
-
+        
         # Create core infrastructure
         self._create_iam_roles()
         self._create_s3_bucket()
@@ -54,13 +54,13 @@ class BusinessContinuityTestingStack(Stack):
         self._create_lambda_functions()
         self._create_event_rules()
         self._create_cloudwatch_dashboard()
-
+        
         # Create outputs
         self._create_outputs()
 
     def _create_iam_roles(self) -> None:
         """Create IAM roles for automation and Lambda execution."""
-
+        
         # Automation execution role
         self.automation_role = iam.Role(
             self,
@@ -70,7 +70,7 @@ class BusinessContinuityTestingStack(Stack):
                 iam.ServicePrincipal("ssm.amazonaws.com"),
                 iam.ServicePrincipal("lambda.amazonaws.com"),
                 iam.ServicePrincipal("states.amazonaws.com"),
-                iam.ServicePrincipal("events.amazonaws.com"),
+                iam.ServicePrincipal("events.amazonaws.com")
             ),
             description="Role for business continuity testing automation",
             managed_policies=[
@@ -93,18 +93,19 @@ class BusinessContinuityTestingStack(Stack):
                                 "sns:*",
                                 "logs:*",
                                 "backup:*",
-                                "route53:*",
+                                "iam:PassRole",
+                                "route53:*"
                             ],
-                            resources=["*"],
+                            resources=["*"]
                         )
                     ]
                 )
-            },
+            }
         )
 
     def _create_s3_bucket(self) -> None:
         """Create S3 bucket for test results and reports."""
-
+        
         self.results_bucket = s3.Bucket(
             self,
             "TestResultsBucket",
@@ -120,45 +121,56 @@ class BusinessContinuityTestingStack(Stack):
                     transitions=[
                         s3.Transition(
                             storage_class=s3.StorageClass.INFREQUENT_ACCESS,
-                            transition_after=Duration.days(30),
+                            transition_after=Duration.days(30)
                         ),
                         s3.Transition(
                             storage_class=s3.StorageClass.GLACIER,
-                            transition_after=Duration.days(90),
-                        ),
+                            transition_after=Duration.days(90)
+                        )
                     ],
-                    expiration=Duration.days(2555),  # ~7 years
+                    expiration=Duration.days(2555)  # ~7 years
                 )
             ],
             public_read_access=False,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL
         )
 
     def _create_sns_topic(self) -> None:
         """Create SNS topic for BC testing alerts."""
-
+        
         self.alert_topic = sns.Topic(
             self,
             "BCAlertsTopic",
             topic_name=f"bc-alerts-{self.project_id}",
-            display_name="Business Continuity Testing Alerts",
+            display_name="Business Continuity Testing Alerts"
         )
-
+        
         # Add email subscription
-        self.alert_topic.add_subscription(subscriptions.EmailSubscription(self.notification_email))
+        self.alert_topic.add_subscription(
+            subscriptions.EmailSubscription(self.notification_email)
+        )
 
     def _create_automation_documents(self) -> None:
         """Create Systems Manager automation documents for BC testing."""
-
+        
         # Backup validation automation document
         backup_validation_content = {
             "schemaVersion": "0.3",
             "description": "Validate backup integrity and restore capabilities",
             "assumeRole": "{{ AutomationAssumeRole }}",
             "parameters": {
-                "InstanceId": {"type": "String", "description": "EC2 instance ID to test backup restore"},
-                "BackupVaultName": {"type": "String", "description": "AWS Backup vault name"},
-                "AutomationAssumeRole": {"type": "String", "description": "IAM role for automation execution"},
+                "InstanceId": {
+                    "type": "String",
+                    "description": "EC2 instance ID to test backup restore"
+                },
+                "BackupVaultName": {
+                    "type": "String",
+                    "description": "AWS Backup vault name"
+                },
+                "AutomationAssumeRole": {
+                    "type": "String",
+                    "description": "IAM role for automation execution"
+                }
             },
             "mainSteps": [
                 {
@@ -168,10 +180,18 @@ class BusinessContinuityTestingStack(Stack):
                         "Service": "backup",
                         "Api": "StartRestoreJob",
                         "RecoveryPointArn": "{{ GetLatestRecoveryPoint.RecoveryPointArn }}",
-                        "Metadata": {"InstanceType": "t3.micro"},
-                        "IamRoleArn": "{{ AutomationAssumeRole }}",
+                        "Metadata": {
+                            "InstanceType": "t3.micro"
+                        },
+                        "IamRoleArn": "{{ AutomationAssumeRole }}"
                     },
-                    "outputs": [{"Name": "RestoreJobId", "Selector": "$.RestoreJobId", "Type": "String"}],
+                    "outputs": [
+                        {
+                            "Name": "RestoreJobId",
+                            "Selector": "$.RestoreJobId",
+                            "Type": "String"
+                        }
+                    ]
                 },
                 {
                     "name": "WaitForRestoreCompletion",
@@ -181,9 +201,9 @@ class BusinessContinuityTestingStack(Stack):
                         "Api": "DescribeRestoreJob",
                         "RestoreJobId": "{{ CreateRestoreTestInstance.RestoreJobId }}",
                         "PropertySelector": "$.Status",
-                        "DesiredValues": ["COMPLETED"],
+                        "DesiredValues": ["COMPLETED"]
                     },
-                    "timeoutSeconds": 3600,
+                    "timeoutSeconds": 3600
                 },
                 {
                     "name": "ValidateRestoredInstance",
@@ -200,25 +220,31 @@ class BusinessContinuityTestingStack(Stack):
                                 "if command -v nginx &> /dev/null; then",
                                 "    systemctl status nginx",
                                 "fi",
-                                "echo 'Validation completed'",
+                                "echo 'Validation completed'"
                             ]
-                        },
+                        }
                     },
                     "outputs": [
                         {
                             "Name": "ValidationResults",
                             "Selector": "$.CommandInvocations[0].CommandPlugins[0].Output",
-                            "Type": "String",
+                            "Type": "String"
                         }
-                    ],
+                    ]
                 },
                 {
                     "name": "CleanupTestInstance",
                     "action": "aws:executeAwsApi",
-                    "inputs": {"Service": "ec2", "Api": "TerminateInstances", "InstanceIds": ["{{ CreateRestoreTestInstance.CreatedResourceArn }}"]},
-                },
+                    "inputs": {
+                        "Service": "ec2",
+                        "Api": "TerminateInstances",
+                        "InstanceIds": ["{{ CreateRestoreTestInstance.CreatedResourceArn }}"]
+                    }
+                }
             ],
-            "outputs": ["ValidationResults: {{ ValidateRestoredInstance.ValidationResults }}"],
+            "outputs": [
+                "ValidationResults: {{ ValidateRestoredInstance.ValidationResults }}"
+            ]
         }
 
         self.backup_validation_doc = ssm.CfnDocument(
@@ -228,7 +254,12 @@ class BusinessContinuityTestingStack(Stack):
             document_format="JSON",
             name=f"BC-BackupValidation-{self.project_id}",
             content=backup_validation_content,
-            tags=[{"key": "Purpose", "value": "BusinessContinuityTesting"}],
+            tags=[
+                {
+                    "key": "Purpose",
+                    "value": "BusinessContinuityTesting"
+                }
+            ]
         )
 
         # Database recovery automation document
@@ -237,10 +268,22 @@ class BusinessContinuityTestingStack(Stack):
             "description": "Test database backup and recovery procedures",
             "assumeRole": "{{ AutomationAssumeRole }}",
             "parameters": {
-                "DBInstanceIdentifier": {"type": "String", "description": "RDS instance identifier"},
-                "DBSnapshotIdentifier": {"type": "String", "description": "Snapshot to restore from"},
-                "TestDBInstanceIdentifier": {"type": "String", "description": "Test database instance identifier"},
-                "AutomationAssumeRole": {"type": "String", "description": "IAM role for automation execution"},
+                "DBInstanceIdentifier": {
+                    "type": "String",
+                    "description": "RDS instance identifier"
+                },
+                "DBSnapshotIdentifier": {
+                    "type": "String",
+                    "description": "Snapshot to restore from"
+                },
+                "TestDBInstanceIdentifier": {
+                    "type": "String",
+                    "description": "Test database instance identifier"
+                },
+                "AutomationAssumeRole": {
+                    "type": "String",
+                    "description": "IAM role for automation execution"
+                }
             },
             "mainSteps": [
                 {
@@ -253,9 +296,15 @@ class BusinessContinuityTestingStack(Stack):
                         "DBSnapshotIdentifier": "{{ DBSnapshotIdentifier }}",
                         "DBInstanceClass": "db.t3.micro",
                         "PubliclyAccessible": False,
-                        "StorageEncrypted": True,
+                        "StorageEncrypted": True
                     },
-                    "outputs": [{"Name": "TestDBEndpoint", "Selector": "$.DBInstance.Endpoint.Address", "Type": "String"}],
+                    "outputs": [
+                        {
+                            "Name": "TestDBEndpoint",
+                            "Selector": "$.DBInstance.Endpoint.Address",
+                            "Type": "String"
+                        }
+                    ]
                 },
                 {
                     "name": "WaitForDBAvailable",
@@ -265,9 +314,9 @@ class BusinessContinuityTestingStack(Stack):
                         "Api": "DescribeDBInstances",
                         "DBInstanceIdentifier": "{{ TestDBInstanceIdentifier }}",
                         "PropertySelector": "$.DBInstances[0].DBInstanceStatus",
-                        "DesiredValues": ["available"],
+                        "DesiredValues": ["available"]
                     },
-                    "timeoutSeconds": 1800,
+                    "timeoutSeconds": 1800
                 },
                 {
                     "name": "CleanupTestDatabase",
@@ -277,10 +326,10 @@ class BusinessContinuityTestingStack(Stack):
                         "Api": "DeleteDBInstance",
                         "DBInstanceIdentifier": "{{ TestDBInstanceIdentifier }}",
                         "SkipFinalSnapshot": True,
-                        "DeleteAutomatedBackups": True,
-                    },
-                },
-            ],
+                        "DeleteAutomatedBackups": True
+                    }
+                }
+            ]
         }
 
         self.database_recovery_doc = ssm.CfnDocument(
@@ -290,7 +339,12 @@ class BusinessContinuityTestingStack(Stack):
             document_format="JSON",
             name=f"BC-DatabaseRecovery-{self.project_id}",
             content=database_recovery_content,
-            tags=[{"key": "Purpose", "value": "BusinessContinuityTesting"}],
+            tags=[
+                {
+                    "key": "Purpose",
+                    "value": "BusinessContinuityTesting"
+                }
+            ]
         )
 
         # Application failover automation document
@@ -299,11 +353,26 @@ class BusinessContinuityTestingStack(Stack):
             "description": "Test application failover to secondary region",
             "assumeRole": "{{ AutomationAssumeRole }}",
             "parameters": {
-                "PrimaryLoadBalancerArn": {"type": "String", "description": "Primary Application Load Balancer ARN"},
-                "SecondaryLoadBalancerArn": {"type": "String", "description": "Secondary Application Load Balancer ARN"},
-                "Route53HostedZoneId": {"type": "String", "description": "Route 53 hosted zone ID"},
-                "DomainName": {"type": "String", "description": "Domain name for failover testing"},
-                "AutomationAssumeRole": {"type": "String", "description": "IAM role for automation execution"},
+                "PrimaryLoadBalancerArn": {
+                    "type": "String",
+                    "description": "Primary Application Load Balancer ARN"
+                },
+                "SecondaryLoadBalancerArn": {
+                    "type": "String",
+                    "description": "Secondary Application Load Balancer ARN"
+                },
+                "Route53HostedZoneId": {
+                    "type": "String",
+                    "description": "Route 53 hosted zone ID"
+                },
+                "DomainName": {
+                    "type": "String",
+                    "description": "Domain name for failover testing"
+                },
+                "AutomationAssumeRole": {
+                    "type": "String",
+                    "description": "IAM role for automation execution"
+                }
             },
             "mainSteps": [
                 {
@@ -323,14 +392,24 @@ class BusinessContinuityTestingStack(Stack):
                                         "SetIdentifier": "Primary",
                                         "Failover": "SECONDARY",
                                         "TTL": 60,
-                                        "ResourceRecords": [{"Value": "1.2.3.4"}],
-                                    },
+                                        "ResourceRecords": [
+                                            {
+                                                "Value": "1.2.3.4"
+                                            }
+                                        ]
+                                    }
                                 }
                             ]
-                        },
-                    },
+                        }
+                    }
                 },
-                {"name": "WaitForDNSPropagation", "action": "aws:sleep", "inputs": {"Duration": "PT2M"}},
+                {
+                    "name": "WaitForDNSPropagation",
+                    "action": "aws:sleep",
+                    "inputs": {
+                        "Duration": "PT2M"
+                    }
+                },
                 {
                     "name": "RestorePrimaryRouting",
                     "action": "aws:executeAwsApi",
@@ -348,14 +427,18 @@ class BusinessContinuityTestingStack(Stack):
                                         "SetIdentifier": "Primary",
                                         "Failover": "PRIMARY",
                                         "TTL": 300,
-                                        "ResourceRecords": [{"Value": "5.6.7.8"}],
-                                    },
+                                        "ResourceRecords": [
+                                            {
+                                                "Value": "5.6.7.8"
+                                            }
+                                        ]
+                                    }
                                 }
                             ]
-                        },
-                    },
-                },
-            ],
+                        }
+                    }
+                }
+            ]
         }
 
         self.application_failover_doc = ssm.CfnDocument(
@@ -365,12 +448,17 @@ class BusinessContinuityTestingStack(Stack):
             document_format="JSON",
             name=f"BC-ApplicationFailover-{self.project_id}",
             content=application_failover_content,
-            tags=[{"key": "Purpose", "value": "BusinessContinuityTesting"}],
+            tags=[
+                {
+                    "key": "Purpose",
+                    "value": "BusinessContinuityTesting"
+                }
+            ]
         )
 
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for BC test orchestration and reporting."""
-
+        
         # Test orchestration Lambda function
         self.orchestrator_function = lambda_.Function(
             self,
@@ -385,9 +473,9 @@ class BusinessContinuityTestingStack(Stack):
                 "PROJECT_ID": self.project_id,
                 "RESULTS_BUCKET": self.results_bucket.bucket_name,
                 "AUTOMATION_ROLE_ARN": self.automation_role.role_arn,
-                "SNS_TOPIC_ARN": self.alert_topic.topic_arn,
+                "SNS_TOPIC_ARN": self.alert_topic.topic_arn
             },
-            description="Orchestrates business continuity testing procedures",
+            description="Orchestrates business continuity testing procedures"
         )
 
         # Compliance reporting Lambda function
@@ -400,8 +488,10 @@ class BusinessContinuityTestingStack(Stack):
             code=lambda_.Code.from_inline(self._get_compliance_code()),
             timeout=Duration.minutes(5),
             role=self.automation_role,
-            environment={"RESULTS_BUCKET": self.results_bucket.bucket_name},
-            description="Generates monthly compliance reports for BC testing",
+            environment={
+                "RESULTS_BUCKET": self.results_bucket.bucket_name
+            },
+            description="Generates monthly compliance reports for BC testing"
         )
 
         # Manual test executor Lambda function
@@ -414,23 +504,29 @@ class BusinessContinuityTestingStack(Stack):
             code=lambda_.Code.from_inline(self._get_manual_test_code()),
             timeout=Duration.minutes(5),
             role=self.automation_role,
-            environment={"PROJECT_ID": self.project_id, "AUTOMATION_ROLE_ARN": self.automation_role.role_arn},
-            description="Enables manual execution of BC tests",
+            environment={
+                "PROJECT_ID": self.project_id,
+                "AUTOMATION_ROLE_ARN": self.automation_role.role_arn
+            },
+            description="Enables manual execution of BC tests"
         )
 
     def _create_event_rules(self) -> None:
         """Create EventBridge rules for scheduled BC testing."""
-
+        
         # Daily basic tests
         self.daily_rule = events.Rule(
             self,
             "DailyTestsRule",
             rule_name=f"bc-daily-tests-{self.project_id}",
             schedule=events.Schedule.rate(Duration.days(1)),
-            description="Daily business continuity basic tests",
+            description="Daily business continuity basic tests"
         )
         self.daily_rule.add_target(
-            targets.LambdaFunction(self.orchestrator_function, event=events.RuleTargetInput.from_object({"testType": "daily"}))
+            targets.LambdaFunction(
+                self.orchestrator_function,
+                event=events.RuleTargetInput.from_object({"testType": "daily"})
+            )
         )
 
         # Weekly comprehensive tests
@@ -439,10 +535,13 @@ class BusinessContinuityTestingStack(Stack):
             "WeeklyTestsRule",
             rule_name=f"bc-weekly-tests-{self.project_id}",
             schedule=events.Schedule.cron(minute="0", hour="2", week_day="SUN"),
-            description="Weekly comprehensive business continuity tests",
+            description="Weekly comprehensive business continuity tests"
         )
         self.weekly_rule.add_target(
-            targets.LambdaFunction(self.orchestrator_function, event=events.RuleTargetInput.from_object({"testType": "weekly"}))
+            targets.LambdaFunction(
+                self.orchestrator_function,
+                event=events.RuleTargetInput.from_object({"testType": "weekly"})
+            )
         )
 
         # Monthly full DR tests
@@ -451,10 +550,13 @@ class BusinessContinuityTestingStack(Stack):
             "MonthlyTestsRule",
             rule_name=f"bc-monthly-tests-{self.project_id}",
             schedule=events.Schedule.cron(minute="0", hour="1", day="1"),
-            description="Monthly full disaster recovery tests",
+            description="Monthly full disaster recovery tests"
         )
         self.monthly_rule.add_target(
-            targets.LambdaFunction(self.orchestrator_function, event=events.RuleTargetInput.from_object({"testType": "monthly"}))
+            targets.LambdaFunction(
+                self.orchestrator_function,
+                event=events.RuleTargetInput.from_object({"testType": "monthly"})
+            )
         )
 
         # Monthly compliance reporting
@@ -463,113 +565,124 @@ class BusinessContinuityTestingStack(Stack):
             "ComplianceReportingRule",
             rule_name=f"bc-compliance-reporting-{self.project_id}",
             schedule=events.Schedule.cron(minute="0", hour="8", day="1"),
-            description="Monthly BC compliance reporting",
+            description="Monthly BC compliance reporting"
         )
-        self.compliance_rule.add_target(targets.LambdaFunction(self.compliance_function))
+        self.compliance_rule.add_target(
+            targets.LambdaFunction(self.compliance_function)
+        )
 
     def _create_cloudwatch_dashboard(self) -> None:
         """Create CloudWatch dashboard for BC testing monitoring."""
-
+        
         self.dashboard = cloudwatch.Dashboard(
             self,
             "BCTestingDashboard",
             dashboard_name=f"BC-Testing-{self.project_id}",
             widgets=[
                 [
+                    # Lambda metrics widget
                     cloudwatch.GraphWidget(
                         title="BC Testing Lambda Metrics",
                         left=[
                             self.orchestrator_function.metric_duration(),
                             self.orchestrator_function.metric_errors(),
-                            self.orchestrator_function.metric_invocations(),
+                            self.orchestrator_function.metric_invocations()
                         ],
                         width=12,
-                        height=6,
+                        height=6
                     )
                 ],
                 [
+                    # Systems Manager automation metrics
                     cloudwatch.SingleValueWidget(
                         title="BC Testing Success/Failure Rates",
                         metrics=[
                             cloudwatch.Metric(
                                 namespace="AWS/SSM",
                                 metric_name="ExecutionSuccess",
-                                dimensions_map={"DocumentName": f"BC-BackupValidation-{self.project_id}"},
+                                dimensions_map={
+                                    "DocumentName": f"BC-BackupValidation-{self.project_id}"
+                                },
                                 statistic="Sum",
-                                period=Duration.days(1),
+                                period=Duration.days(1)
                             ),
                             cloudwatch.Metric(
                                 namespace="AWS/SSM",
                                 metric_name="ExecutionFailed",
-                                dimensions_map={"DocumentName": f"BC-BackupValidation-{self.project_id}"},
+                                dimensions_map={
+                                    "DocumentName": f"BC-BackupValidation-{self.project_id}"
+                                },
                                 statistic="Sum",
-                                period=Duration.days(1),
-                            ),
+                                period=Duration.days(1)
+                            )
                         ],
                         width=12,
-                        height=6,
+                        height=6
                     )
                 ],
                 [
+                    # Log insights widget
                     cloudwatch.LogQueryWidget(
                         title="Recent BC Test Executions",
-                        log_groups=[self.orchestrator_function.log_group],
+                        log_groups=[
+                            self.orchestrator_function.log_group
+                        ],
                         query_lines=[
                             "fields @timestamp, @message",
                             "filter @message like /Test/",
                             "sort @timestamp desc",
-                            "limit 20",
+                            "limit 20"
                         ],
                         width=24,
-                        height=6,
+                        height=6
                     )
-                ],
-            ],
+                ]
+            ]
         )
 
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""
-
+        
         CfnOutput(
             self,
             "ResultsBucketName",
             value=self.results_bucket.bucket_name,
-            description="S3 bucket for BC test results and reports",
+            description="S3 bucket for BC test results and reports"
         )
-
+        
         CfnOutput(
             self,
             "AutomationRoleArn",
             value=self.automation_role.role_arn,
-            description="IAM role ARN for BC testing automation",
+            description="IAM role ARN for BC testing automation"
         )
-
+        
         CfnOutput(
             self,
             "AlertTopicArn",
             value=self.alert_topic.topic_arn,
-            description="SNS topic ARN for BC testing alerts",
+            description="SNS topic ARN for BC testing alerts"
         )
-
+        
         CfnOutput(
             self,
             "OrchestratorFunctionName",
             value=self.orchestrator_function.function_name,
-            description="Lambda function name for test orchestration",
+            description="Lambda function name for test orchestration"
         )
-
+        
         CfnOutput(
             self,
             "ManualTestFunctionName",
             value=self.manual_test_function.function_name,
-            description="Lambda function name for manual test execution",
+            description="Lambda function name for manual test execution"
         )
-
+        
         CfnOutput(
             self,
             "DashboardUrl",
             value=f"https://{self.region}.console.aws.amazon.com/cloudwatch/home?region={self.region}#dashboards:name={self.dashboard.dashboard_name}",
-            description="CloudWatch dashboard URL for BC testing monitoring",
+            description="CloudWatch dashboard URL for BC testing monitoring"
         )
 
     def _get_orchestrator_code(self) -> str:
@@ -586,33 +699,33 @@ def lambda_handler(event, context):
     ssm = boto3.client('ssm')
     s3 = boto3.client('s3')
     sns = boto3.client('sns')
-
+    
     test_type = event.get('testType', 'daily')
     test_id = str(uuid.uuid4())
-
+    
     test_results = {
         'testId': test_id,
         'testType': test_type,
         'timestamp': datetime.datetime.utcnow().isoformat(),
         'results': []
     }
-
+    
     try:
         if test_type in ['daily', 'weekly', 'monthly']:
             # Execute backup validation
             backup_result = execute_backup_validation(ssm, test_id)
             test_results['results'].append(backup_result)
-
+        
         if test_type in ['weekly', 'monthly']:
             # Execute database recovery test
             db_result = execute_database_recovery_test(ssm, test_id)
             test_results['results'].append(db_result)
-
+        
         if test_type == 'monthly':
             # Execute full application failover test
             app_result = execute_application_failover_test(ssm, test_id)
             test_results['results'].append(app_result)
-
+        
         # Store results in S3
         s3.put_object(
             Bucket=os.environ['RESULTS_BUCKET'],
@@ -620,17 +733,17 @@ def lambda_handler(event, context):
             Body=json.dumps(test_results, indent=2),
             ContentType='application/json'
         )
-
+        
         # Generate summary report
         summary = generate_test_summary(test_results)
-
+        
         # Send notification
         sns.publish(
             TopicArn=os.environ['SNS_TOPIC_ARN'],
             Subject=f'BC Testing {test_type.title()} Report - {test_id[:8]}',
             Message=summary
         )
-
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -638,7 +751,7 @@ def lambda_handler(event, context):
                 'summary': summary
             })
         }
-
+        
     except Exception as e:
         error_message = f'BC testing failed: {str(e)}'
         sns.publish(
@@ -657,7 +770,7 @@ def execute_backup_validation(ssm, test_id):
             'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
         }
     )
-
+    
     return {
         'test': 'backup_validation',
         'executionId': response['AutomationExecutionId'],
@@ -674,7 +787,7 @@ def execute_database_recovery_test(ssm, test_id):
             'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
         }
     )
-
+    
     return {
         'test': 'database_recovery',
         'executionId': response['AutomationExecutionId'],
@@ -692,7 +805,7 @@ def execute_application_failover_test(ssm, test_id):
             'AutomationAssumeRole': [os.environ['AUTOMATION_ROLE_ARN']]
         }
     )
-
+    
     return {
         'test': 'application_failover',
         'executionId': response['AutomationExecutionId'],
@@ -711,10 +824,10 @@ Tests Executed: {total_tests}
 
 Test Results:
 """
-
+    
     for result in test_results['results']:
         summary += f"- {result['test']}: {result['status']}\\n"
-
+    
     return summary
 '''
 
@@ -730,30 +843,30 @@ from typing import Dict, List
 def lambda_handler(event, context):
     s3 = boto3.client('s3')
     ssm = boto3.client('ssm')
-
+    
     # Generate monthly compliance report
     report_data = generate_compliance_report(s3, ssm)
-
+    
     # Store compliance report
     report_key = f"compliance-reports/{datetime.datetime.utcnow().strftime('%Y-%m')}/bc-compliance-report.json"
-
+    
     s3.put_object(
         Bucket=os.environ['RESULTS_BUCKET'],
         Key=report_key,
         Body=json.dumps(report_data, indent=2),
         ContentType='application/json'
     )
-
+    
     # Generate HTML report
     html_report = generate_html_report(report_data)
-
+    
     s3.put_object(
         Bucket=os.environ['RESULTS_BUCKET'],
         Key=f"compliance-reports/{datetime.datetime.utcnow().strftime('%Y-%m')}/bc-compliance-report.html",
         Body=html_report,
         ContentType='text/html'
     )
-
+    
     return {
         'statusCode': 200,
         'body': json.dumps({
@@ -765,7 +878,7 @@ def lambda_handler(event, context):
 def generate_compliance_report(s3, ssm):
     # Collect test execution data from the past month
     start_date = datetime.datetime.utcnow() - datetime.timedelta(days=30)
-
+    
     report = {
         'reportPeriod': {
             'start': start_date.isoformat(),
@@ -782,10 +895,10 @@ def generate_compliance_report(s3, ssm):
         'complianceStatus': 'COMPLIANT',
         'recommendations': []
     }
-
+    
     # Analyze test execution history
     # This would integrate with actual Systems Manager execution history
-
+    
     return report
 
 def generate_html_report(report_data):
@@ -810,7 +923,7 @@ def generate_html_report(report_data):
         <h1>Business Continuity Testing Compliance Report</h1>
         <p>Report Period: {report_data['reportPeriod']['start']} to {report_data['reportPeriod']['end']}</p>
     </div>
-
+    
     <div class="summary">
         <h2>Testing Summary</h2>
         <p>Total Tests Executed: {report_data['testingSummary']['totalTests']}</p>
@@ -834,12 +947,12 @@ import os
 
 def lambda_handler(event, context):
     ssm = boto3.client('ssm')
-
+    
     test_type = event.get('testType', 'comprehensive')
     test_components = event.get('components', ['backup', 'database', 'application'])
-
+    
     execution_results = []
-
+    
     for component in test_components:
         if component == 'backup':
             result = execute_backup_test(ssm)
@@ -850,7 +963,7 @@ def lambda_handler(event, context):
         elif component == 'application':
             result = execute_application_test(ssm)
             execution_results.append(result)
-
+    
     return {
         'statusCode': 200,
         'body': json.dumps({
@@ -910,10 +1023,10 @@ BusinessContinuityTestingStack(
     app,
     "BusinessContinuityTestingStack",
     env=cdk.Environment(
-        account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
-        region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
+        account=os.environ.get('CDK_DEFAULT_ACCOUNT'),
+        region=os.environ.get('CDK_DEFAULT_REGION', 'us-east-1')
     ),
-    description="Business Continuity Testing Framework with AWS Systems Manager",
+    description="Business Continuity Testing Framework with AWS Systems Manager"
 )
 
 app.synth()
