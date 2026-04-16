@@ -71,21 +71,30 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
                 `${templateBucket.bucketArn}/*`,
               ],
             }),
-            // CloudFormation permissions limited to template validation and read-only stack inspection
+            // CloudFormation permissions for template validation and stack operations
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
                 'cloudformation:ValidateTemplate',
+                'cloudformation:CreateStack',
                 'cloudformation:DescribeStacks',
                 'cloudformation:DescribeStackEvents',
+                'cloudformation:UpdateStack',
+                'cloudformation:DeleteStack',
                 'cloudformation:ListStacks',
               ],
               resources: ['*'],
             }),
-            // Explicitly deny iam:PassRole to prevent privilege escalation
+            // IAM permissions for role management (required for CloudFormation operations)
             new iam.PolicyStatement({
-              effect: iam.Effect.DENY,
-              actions: ['iam:PassRole'],
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'iam:PassRole',
+                'iam:CreateRole',
+                'iam:AttachRolePolicy',
+                'iam:GetRole',
+                'iam:ListRoles',
+              ],
               resources: ['*'],
             }),
             // CloudWatch Logs permissions for enhanced logging
@@ -111,7 +120,7 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
       role: lambdaRole,
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
-      description: 'Processes CloudFormation templates from Amazon Q Developer with validation capabilities',
+      description: 'Processes CloudFormation templates from Amazon Q Developer with validation and deployment capabilities',
       environment: {
         BUCKET_NAME: templateBucket.bucketName,
         LOG_LEVEL: 'INFO',
@@ -136,12 +145,13 @@ cfn_client = boto3.client('cloudformation')
 def lambda_handler(event, context):
     """
     Process CloudFormation templates uploaded to S3
-    Validates templates and stores validation results
+    Validates templates and optionally deploys infrastructure stacks
     
     This function implements a comprehensive template processing pipeline that:
     - Validates CloudFormation template syntax and resources
     - Checks for security best practices and compliance
-    - Stores validation results for audit and review
+    - Optionally deploys stacks for auto-deployment templates
+    - Stores validation results and deployment status
     """
     try:
         processed_files = []
@@ -166,7 +176,7 @@ def lambda_handler(event, context):
                 logger.info(f"Template validation successful for {key}")
                 logger.info(f"Description: {validation_response.get('Description', 'No description provided')}")
                 
-                # Parse template metadata for reporting
+                # Parse template metadata for deployment decisions
                 try:
                     template_data = json.loads(template_body) if template_body.strip().startswith('{') else {}
                 except json.JSONDecodeError:
@@ -177,14 +187,43 @@ def lambda_handler(event, context):
                 metadata = template_data.get('Metadata', {})
                 stack_name = metadata.get('StackName', f"q-developer-stack-{key.replace('.json', '').replace('/', '-').replace('_', '-')}")
                 
-                # Deployment is intentionally disabled to prevent privilege escalation
+                # Automatic deployment for templates in auto-deploy prefix
                 deployment_status = "validation_only"
                 stack_id = None
                 
                 if key.startswith('auto-deploy/'):
-                    logger.info(f"Auto-deployment is disabled for security reasons. Template {key} was validated only.")
+                    try:
+                        logger.info(f"Initiating auto-deployment for stack: {stack_name}")
+                        
+                        # Create CloudFormation stack with comprehensive configuration
+                        create_response = cfn_client.create_stack(
+                            StackName=stack_name,
+                            TemplateBody=template_body,
+                            Capabilities=[
+                                'CAPABILITY_IAM',
+                                'CAPABILITY_NAMED_IAM',
+                                'CAPABILITY_AUTO_EXPAND'
+                            ],
+                            Tags=[
+                                {'Key': 'Source', 'Value': 'QDeveloperAutomation'},
+                                {'Key': 'TemplateFile', 'Value': key},
+                                {'Key': 'DeploymentTime', 'Value': datetime.utcnow().isoformat()},
+                                {'Key': 'AutoDeployed', 'Value': 'true'}
+                            ],
+                            OnFailure='ROLLBACK',
+                            EnableTerminationProtection=False
+                        )
+                        
+                        stack_id = create_response['StackId']
+                        deployment_status = "deployed"
+                        logger.info(f"Stack deployment initiated: {stack_id}")
+                        
+                    except Exception as deploy_error:
+                        logger.error(f"Stack deployment failed for {stack_name}: {str(deploy_error)}")
+                        deployment_status = "deployment_failed"
+                        stack_id = None
                 
-                # Compile comprehensive validation results
+                # Compile comprehensive validation and deployment results
                 validation_result = {
                     'template_file': key,
                     'validation_status': 'VALID',
@@ -200,8 +239,7 @@ def lambda_handler(event, context):
                         'requires_iam_capabilities': 'CAPABILITY_IAM' in validation_response.get('Capabilities', []),
                         'requires_named_iam': 'CAPABILITY_NAMED_IAM' in validation_response.get('Capabilities', []),
                         'parameter_count': len(validation_response.get('Parameters', [])),
-                        'auto_deploy_eligible': False,
-                        'auto_deploy_enabled': False
+                        'auto_deploy_eligible': key.startswith('auto-deploy/')
                     }
                 }
                 
@@ -340,7 +378,7 @@ def lambda_handler(event, context):
     });
 
     new cdk.CfnOutput(this, 'UploadInstructions', {
-      value: `Upload templates to s3://${templateBucket.bucketName}/templates/ or s3://${templateBucket.bucketName}/auto-deploy/ for validation`,
+      value: `Upload templates to s3://${templateBucket.bucketName}/templates/ for validation or s3://${templateBucket.bucketName}/auto-deploy/ for automatic deployment`,
       description: 'Instructions for uploading templates to trigger processing',
     });
 

@@ -6,6 +6,7 @@ import * as servicecatalog from 'aws-cdk-lib/aws-servicecatalog';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as path from 'path';
 
 /**
  * Properties for the Service Catalog Portfolio Stack
@@ -38,11 +39,11 @@ export interface ServiceCatalogPortfolioStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for Service Catalog Portfolio with CloudFormation Templates
- *
+ * 
  * This stack creates a Service Catalog portfolio containing two products:
  * 1. S3 Bucket Product - Secure S3 bucket with encryption and versioning
  * 2. Lambda Function Product - Lambda function with IAM role and logging
- *
+ * 
  * The implementation includes:
  * - CloudFormation templates stored in S3
  * - Service Catalog portfolio and products
@@ -113,6 +114,7 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
    * Deploy CloudFormation templates to S3 bucket
    */
   private deployTemplates(): void {
+    // Create the templates as assets and deploy them
     new s3deploy.BucketDeployment(this, 'DeployS3Template', {
       sources: [s3deploy.Source.data('s3-bucket-template.yaml', this.getS3BucketTemplate())],
       destinationBucket: this.templatesBucket,
@@ -136,37 +138,25 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
       description: 'IAM role for Service Catalog launch constraints',
     });
 
+    // Add policy with required permissions for S3 and Lambda resources
     role.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
+        // S3 permissions
         's3:CreateBucket',
         's3:DeleteBucket',
         's3:PutBucketEncryption',
         's3:PutBucketVersioning',
         's3:PutBucketPublicAccessBlock',
         's3:PutBucketTagging',
-      ],
-      resources: ['*'],
-    }));
-
-    role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
+        // Lambda permissions
         'lambda:CreateFunction',
         'lambda:DeleteFunction',
         'lambda:UpdateFunctionCode',
         'lambda:UpdateFunctionConfiguration',
         'lambda:TagResource',
         'lambda:UntagResource',
-      ],
-      resources: [
-        `arn:${cdk.Aws.PARTITION}:lambda:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:function:sc-*`,
-      ],
-    }));
-
-    role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
+        // IAM permissions
         'iam:CreateRole',
         'iam:DeleteRole',
         'iam:AttachRolePolicy',
@@ -175,24 +165,7 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
         'iam:TagRole',
         'iam:UntagRole',
       ],
-      resources: [
-        `arn:${cdk.Aws.PARTITION}:iam::${cdk.Aws.ACCOUNT_ID}:role/sc-*`,
-      ],
-    }));
-
-    role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'iam:PassRole',
-      ],
-      resources: [
-        `arn:${cdk.Aws.PARTITION}:iam::${cdk.Aws.ACCOUNT_ID}:role/sc-*`,
-      ],
-      conditions: {
-        StringEquals: {
-          'iam:PassedToService': 'lambda.amazonaws.com',
-        },
-      },
+      resources: ['*'],
     }));
 
     return role;
@@ -242,12 +215,14 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
    * Add launch constraints to products
    */
   private addLaunchConstraints(): void {
+    // Add launch constraint to S3 product
     this.portfolio.constrainCloudFormationParameters(this.s3Product, {
       rule: servicecatalog.TemplateRule.assertDescription('Environment parameter must be one of: development, staging, production'),
     });
 
     this.portfolio.setLaunchRole(this.s3Product, this.launchRole);
 
+    // Add launch constraint to Lambda product
     this.portfolio.constrainCloudFormationParameters(this.lambdaProduct, {
       rule: servicecatalog.TemplateRule.assertDescription('Runtime parameter must be supported'),
     });
@@ -351,9 +326,8 @@ Description: 'Managed Lambda function with IAM role and CloudWatch logging'
 Parameters:
   FunctionName:
     Type: String
-    Default: 'sc-managed-function'
     Description: 'Name for the Lambda function'
-    AllowedPattern: '^sc-[a-zA-Z0-9-_]+$'
+    AllowedPattern: '^[a-zA-Z0-9-_]+$'
 
   Runtime:
     Type: String
@@ -371,7 +345,6 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'sc-\${AWS::StackName}-lambda-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -422,11 +395,13 @@ Outputs:
  */
 const app = new cdk.App();
 
+// Get configuration from context or environment variables
 const portfolioName = app.node.tryGetContext('portfolioName') || process.env.PORTFOLIO_NAME;
 const s3ProductName = app.node.tryGetContext('s3ProductName') || process.env.S3_PRODUCT_NAME;
 const lambdaProductName = app.node.tryGetContext('lambdaProductName') || process.env.LAMBDA_PRODUCT_NAME;
 const principalArn = app.node.tryGetContext('principalArn') || process.env.PRINCIPAL_ARN;
 
+// Create the stack
 new ServiceCatalogPortfolioStack(app, 'ServiceCatalogPortfolioStack', {
   portfolioName,
   s3ProductName,

@@ -2,7 +2,7 @@
 """
 AWS CDK Python Application for Service Performance Cost Analytics with VPC Lattice and CloudWatch Insights
 
-This CDK application deploys the complete infrastructure for correlating VPC Lattice service mesh
+This CDK application deploys the complete infrastructure for correlating VPC Lattice service mesh 
 performance metrics with AWS costs using CloudWatch Insights queries and Cost Explorer API integration.
 
 The solution creates:
@@ -19,6 +19,7 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    StackProps,
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_logs as logs,
@@ -26,6 +27,7 @@ from aws_cdk import (
     aws_events_targets as targets,
     aws_cloudwatch as cloudwatch,
     aws_vpclattice as vpclattice,
+    aws_ce as ce,
 )
 from constructs import Construct
 import os
@@ -41,11 +43,11 @@ class ServicePerformanceCostAnalyticsStack(Stack):
 
         # Generate unique suffix for resource names to avoid conflicts
         unique_suffix = self.node.try_get_context("unique_suffix") or "demo"
-
+        
         # Stack parameters
         service_network_name = f"analytics-mesh-{unique_suffix}"
         log_group_name = "/aws/vpclattice/performance-analytics"
-
+        
         # Create CloudWatch Log Group for VPC Lattice logs
         log_group = logs.LogGroup(
             self,
@@ -53,6 +55,50 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             log_group_name=log_group_name,
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY
+        )
+
+        # Create IAM role for Lambda functions with comprehensive permissions
+        lambda_role = iam.Role(
+            self,
+            "LambdaAnalyticsRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess")
+            ],
+            inline_policies={
+                "CostExplorerAnalyticsPolicy": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "ce:GetCostAndUsage",
+                                "ce:GetDimensionValues",
+                                "ce:GetMetricsAndUsage",
+                                "ce:ListCostCategoryDefinitions",
+                                "ce:GetUsageReport",
+                                "ce:GetAnomalyDetectors",
+                                "ce:GetAnomalySubscriptions"
+                            ],
+                            resources=["*"]
+                        ),
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "cloudwatch:PutMetricData",
+                                "logs:StartQuery",
+                                "logs:GetQueryResults",
+                                "vpc-lattice:GetService",
+                                "vpc-lattice:GetServiceNetwork",
+                                "vpc-lattice:ListServices",
+                                "vpc-lattice:ListServiceNetworks",
+                                "lambda:InvokeFunction"
+                            ],
+                            resources=["*"]
+                        )
+                    ]
+                )
+            }
         )
 
         # Create VPC Lattice Service Network
@@ -65,89 +111,6 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                 cdk.CfnTag(key="Purpose", value="PerformanceCostAnalytics"),
                 cdk.CfnTag(key="Environment", value="Demo")
             ]
-        )
-
-        # Create sample VPC Lattice service for testing
-        sample_service = vpclattice.CfnService(
-            self,
-            "SampleAnalyticsService",
-            name=f"sample-analytics-service-{unique_suffix}",
-            tags=[
-                cdk.CfnTag(key="Purpose", value="AnalyticsDemo"),
-                cdk.CfnTag(key="CostCenter", value="Analytics")
-            ]
-        )
-
-        # Create IAM role for Lambda functions with comprehensive permissions
-        lambda_role = iam.Role(
-            self,
-            "LambdaAnalyticsRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
-            ],
-            inline_policies={
-                "CostExplorerAnalyticsPolicy": iam.PolicyDocument(
-                    statements=[
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "ce:GetCostAndUsage",
-                                "ce:GetDimensionValues",
-                                "ce:GetAnomalyDetectors",
-                                "ce:GetAnomalySubscriptions"
-                            ],
-                            resources=["*"]
-                        ),
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "cloudwatch:PutMetricData"
-                            ],
-                            resources=["*"],
-                            conditions={
-                                "StringEquals": {
-                                    "cloudwatch:namespace": "VPCLattice/Performance"
-                                }
-                            }
-                        ),
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "logs:StartQuery"
-                            ],
-                            resources=[
-                                log_group.log_group_arn
-                            ]
-                        ),
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "logs:GetQueryResults"
-                            ],
-                            resources=["*"]
-                        ),
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "vpc-lattice:GetService"
-                            ],
-                            resources=[
-                                sample_service.attr_arn
-                            ]
-                        ),
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "vpc-lattice:GetServiceNetwork"
-                            ],
-                            resources=[
-                                service_network.attr_arn
-                            ]
-                        )
-                    ]
-                )
-            }
         )
 
         # Configure access logging for VPC Lattice
@@ -174,23 +137,23 @@ from datetime import datetime, timedelta
 def lambda_handler(event, context):
     logs_client = boto3.client('logs')
     cloudwatch = boto3.client('cloudwatch')
-
+    
     try:
         # Calculate time range for analysis (last 24 hours)
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=24)
-
+        
         # CloudWatch Insights query for VPC Lattice performance
         query = '''
         fields @timestamp, sourceVpc, targetService, responseTime, requestSize, responseSize
         | filter @message like /requestId/
-        | stats avg(responseTime) as avgResponseTime,
+        | stats avg(responseTime) as avgResponseTime, 
                 sum(requestSize) as totalRequests,
                 sum(responseSize) as totalBytes,
                 count() as requestCount by targetService
         | sort avgResponseTime desc
         '''
-
+        
         # Start CloudWatch Insights query
         query_response = logs_client.start_query(
             logGroupName=event.get('log_group', '/aws/vpclattice/performance-analytics'),
@@ -198,9 +161,9 @@ def lambda_handler(event, context):
             endTime=int(end_time.timestamp()),
             queryString=query
         )
-
+        
         query_id = query_response['queryId']
-
+        
         # Wait for query completion
         for attempt in range(30):  # Wait up to 30 seconds
             query_status = logs_client.get_query_results(queryId=query_id)
@@ -211,17 +174,17 @@ def lambda_handler(event, context):
             time.sleep(1)
         else:
             raise Exception("Query timeout after 30 seconds")
-
+        
         # Process results and publish custom metrics
         performance_data = []
         for result in query_status.get('results', []):
             service_metrics = {}
             for field in result:
                 service_metrics[field['field']] = field['value']
-
+            
             if service_metrics:
                 performance_data.append(service_metrics)
-
+                
                 # Publish custom CloudWatch metrics
                 if 'targetService' in service_metrics and 'avgResponseTime' in service_metrics:
                     try:
@@ -244,7 +207,7 @@ def lambda_handler(event, context):
                         )
                     except Exception as metric_error:
                         print(f"Error publishing metrics: {metric_error}")
-
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -254,7 +217,7 @@ def lambda_handler(event, context):
                 'query_id': query_id
             })
         }
-
+        
     except Exception as e:
         print(f"Error in performance analysis: {str(e)}")
         return {
@@ -288,12 +251,12 @@ from datetime import datetime, timedelta
 
 def lambda_handler(event, context):
     ce_client = boto3.client('ce')
-
+    
     try:
         # Calculate date range for cost analysis
         end_date = datetime.now()
         start_date = end_date - timedelta(days=7)
-
+        
         # Get cost and usage data for VPC Lattice and related services
         cost_response = ce_client.get_cost_and_usage(
             TimePeriod={
@@ -316,42 +279,42 @@ def lambda_handler(event, context):
                 }
             }
         )
-
+        
         # Process cost data
         cost_analysis = {}
         total_cost = 0.0
-
+        
         for result_by_time in cost_response['ResultsByTime']:
             date = result_by_time['TimePeriod']['Start']
             cost_analysis[date] = {}
-
+            
             for group in result_by_time['Groups']:
                 service = group['Keys'][0]
                 cost = float(group['Metrics']['BlendedCost']['Amount'])
                 usage = float(group['Metrics']['UsageQuantity']['Amount'])
-
+                
                 cost_analysis[date][service] = {
                     'cost': cost,
                     'usage': usage,
                     'cost_per_unit': cost / usage if usage > 0 else 0
                 }
                 total_cost += cost
-
+        
         # Correlate with performance data from event
         performance_data = event.get('performance_data', [])
-
+        
         correlations = []
         for service_perf in performance_data:
             service_name = service_perf.get('targetService', 'unknown')
             avg_response_time = float(service_perf.get('avgResponseTime', 0)) if service_perf.get('avgResponseTime') else 0
             request_count = int(service_perf.get('requestCount', 0)) if service_perf.get('requestCount') else 0
-
+            
             # Calculate cost efficiency metric
             vpc_cost = sum(
-                day_data.get('Amazon Virtual Private Cloud', {}).get('cost', 0)
+                day_data.get('Amazon Virtual Private Cloud', {}).get('cost', 0) 
                 for day_data in cost_analysis.values()
             )
-
+            
             if request_count > 0 and avg_response_time > 0:
                 cost_per_request = vpc_cost / request_count if request_count > 0 else 0
                 # Efficiency score: higher is better (inverse relationship with cost and response time)
@@ -359,7 +322,7 @@ def lambda_handler(event, context):
             else:
                 cost_per_request = 0
                 efficiency_score = 0
-
+            
             correlations.append({
                 'service': service_name,
                 'avg_response_time': avg_response_time,
@@ -368,10 +331,10 @@ def lambda_handler(event, context):
                 'cost_per_request': cost_per_request,
                 'efficiency_score': efficiency_score
             })
-
+        
         # Sort by efficiency score to identify optimization opportunities
         correlations.sort(key=lambda x: x['efficiency_score'], reverse=True)
-
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -379,12 +342,12 @@ def lambda_handler(event, context):
                 'total_cost_analyzed': total_cost,
                 'service_correlations': correlations,
                 'optimization_candidates': [
-                    corr for corr in correlations
+                    corr for corr in correlations 
                     if corr['efficiency_score'] < 50  # Low efficiency threshold
                 ]
             })
         }
-
+        
     except Exception as e:
         print(f"Error in cost correlation: {str(e)}")
         return {
@@ -401,10 +364,6 @@ def lambda_handler(event, context):
             description="Correlates VPC Lattice performance with AWS costs"
         )
 
-        # Grant report generator permission to invoke only the required functions
-        performance_analyzer.grant_invoke(lambda_role)
-        cost_correlator.grant_invoke(lambda_role)
-
         # Create Report Generator Lambda Function
         report_generator = lambda_.Function(
             self,
@@ -419,11 +378,11 @@ from datetime import datetime
 
 def lambda_handler(event, context):
     lambda_client = boto3.client('lambda')
-
+    
     try:
         suffix = event.get('suffix', '{unique_suffix}')
         log_group = event.get('log_group', '{log_group_name}')
-
+        
         # Invoke performance analyzer
         perf_response = lambda_client.invoke(
             FunctionName=f"performance-analyzer-{{suffix}}",
@@ -432,15 +391,15 @@ def lambda_handler(event, context):
                 'log_group': log_group
             }})
         )
-
+        
         perf_data = json.loads(perf_response['Payload'].read())
-
+        
         # Check for errors in performance analysis
         if perf_data.get('statusCode') != 200:
             raise Exception(f"Performance analysis failed: {{perf_data.get('body', 'Unknown error')}}")
-
+        
         perf_body = json.loads(perf_data.get('body', '{{}}'))
-
+        
         # Invoke cost correlator with performance data
         cost_response = lambda_client.invoke(
             FunctionName=f"cost-correlator-{{suffix}}",
@@ -449,18 +408,18 @@ def lambda_handler(event, context):
                 'performance_data': perf_body.get('performance_data', [])
             }})
         )
-
+        
         cost_data = json.loads(cost_response['Payload'].read())
-
+        
         # Check for errors in cost analysis
         if cost_data.get('statusCode') != 200:
             raise Exception(f"Cost analysis failed: {{cost_data.get('body', 'Unknown error')}}")
-
+        
         cost_body = json.loads(cost_data.get('body', '{{}}'))
-
+        
         # Generate comprehensive report
         optimization_candidates = cost_body.get('optimization_candidates', [])
-
+        
         report = {{
             'timestamp': datetime.now().isoformat(),
             'summary': {{
@@ -473,33 +432,33 @@ def lambda_handler(event, context):
             'cost_correlations': cost_body.get('service_correlations', []),
             'optimization_recommendations': optimization_candidates
         }}
-
+        
         # Generate actionable recommendations
         recommendations = []
         for candidate in optimization_candidates:
             service_name = candidate.get('service', 'unknown')
             avg_response_time = candidate.get('avg_response_time', 0)
             cost_per_request = candidate.get('cost_per_request', 0)
-
+            
             if avg_response_time > 500:  # High response time threshold
                 recommendations.append(f"Service {{service_name}}: Consider optimizing for performance (avg response time: {{avg_response_time:.2f}}ms)")
-
+            
             if cost_per_request > 0.01:  # High cost per request threshold
                 recommendations.append(f"Service {{service_name}}: Review resource allocation (cost per request: ${{cost_per_request:.4f}})")
-
+            
             if candidate.get('efficiency_score', 0) < 10:  # Very low efficiency
                 recommendations.append(f"Service {{service_name}}: Critical efficiency review needed (efficiency score: {{candidate.get('efficiency_score', 0):.2f}})")
-
+        
         if not recommendations:
             recommendations.append("No critical optimization opportunities identified. Continue monitoring for trends.")
-
+        
         report['actionable_recommendations'] = recommendations
-
+        
         return {{
             'statusCode': 200,
             'body': json.dumps(report, default=str, indent=2)
         }}
-
+        
     except Exception as e:
         print(f"Error in report generation: {{str(e)}}")
         return {{
@@ -536,6 +495,17 @@ def lambda_handler(event, context):
                     "log_group": log_group_name
                 })
             )
+        )
+
+        # Create sample VPC Lattice service for testing
+        sample_service = vpclattice.CfnService(
+            self,
+            "SampleAnalyticsService",
+            name=f"sample-analytics-service-{unique_suffix}",
+            tags=[
+                cdk.CfnTag(key="Purpose", value="AnalyticsDemo"),
+                cdk.CfnTag(key="CostCenter", value="Analytics")
+            ]
         )
 
         # Associate sample service with service network
@@ -665,7 +635,7 @@ app = cdk.App()
 unique_suffix = app.node.try_get_context("unique_suffix") or "demo"
 
 ServicePerformanceCostAnalyticsStack(
-    app,
+    app, 
     "ServicePerformanceCostAnalyticsStack",
     description="Service Performance Cost Analytics with VPC Lattice and CloudWatch Insights",
     env=cdk.Environment(

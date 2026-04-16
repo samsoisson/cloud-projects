@@ -6,7 +6,7 @@ Generates compliance reports for database fleet governance using Cloud Asset Inv
 import json
 import os
 import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from google.cloud import asset_v1
 from google.cloud import bigquery
 from google.cloud import storage
@@ -31,6 +31,7 @@ def generate_compliance_report(request) -> Dict[str, Any]:
         JSON response with compliance report status and details
     """
     try:
+        # Extract parameters from request
         project_id = request.args.get('project_id', os.environ.get('PROJECT_ID', '${project_id}'))
         suffix = request.args.get('suffix', os.environ.get('SUFFIX', '${suffix}'))
         report_type = request.args.get('report_type', 'compliance')
@@ -41,12 +42,12 @@ def generate_compliance_report(request) -> Dict[str, Any]:
                 'message': 'PROJECT_ID is required either as query parameter or environment variable'
             }, 400
         
+        # Initialize Google Cloud clients
         asset_client = asset_v1.AssetServiceClient()
         bq_client = bigquery.Client(project=project_id)
         storage_client = storage.Client(project=project_id)
         
-        _ = asset_client
-        
+        # Generate compliance report based on asset inventory data
         report = _generate_governance_report(
             bq_client=bq_client,
             project_id=project_id,
@@ -54,12 +55,14 @@ def generate_compliance_report(request) -> Dict[str, Any]:
             report_type=report_type
         )
         
+        # Upload report to Cloud Storage
         report_location = _upload_report_to_storage(
             storage_client=storage_client,
             report=report,
             suffix=suffix
         )
         
+        # Log compliance metrics for monitoring
         _log_compliance_metrics(report)
         
         return {
@@ -100,6 +103,8 @@ def _generate_governance_report(
     Returns:
         Dictionary containing comprehensive governance report
     """
+    
+    # Query database assets from BigQuery
     dataset_id = f"database_governance_{suffix}"
     query = f"""
     SELECT 
@@ -119,8 +124,10 @@ def _generate_governance_report(
         results = list(query_job.result())
     except Exception as e:
         print(f"Warning: Could not query BigQuery asset inventory: {e}")
+        # Return empty report if BigQuery data is not available
         results = []
     
+    # Initialize report structure
     report = {
         'timestamp': datetime.datetime.now().isoformat(),
         'project_id': project_id,
@@ -134,16 +141,19 @@ def _generate_governance_report(
         'governance_score': 0.0
     }
     
+    # Analyze each database asset for compliance
     for row in results:
         report['total_databases'] += 1
         asset_type = row.asset_type
         asset_name = row.name
         config = row.config if row.config else {}
         
+        # Count asset types
         if asset_type not in report['asset_summary']:
             report['asset_summary'][asset_type] = 0
         report['asset_summary'][asset_type] += 1
         
+        # Perform compliance checks based on asset type
         compliance_result = _check_asset_compliance(
             asset_type=asset_type,
             asset_name=asset_name,
@@ -155,9 +165,13 @@ def _generate_governance_report(
         else:
             report['violations'].extend(compliance_result['violations'])
         
+        # Add security findings
         report['security_findings'].extend(compliance_result.get('security_findings', []))
+        
+        # Add recommendations
         report['recommendations'].extend(compliance_result.get('recommendations', []))
     
+    # Calculate compliance percentage
     if report['total_databases'] > 0:
         report['compliance_percentage'] = (
             report['compliant_databases'] / report['total_databases']
@@ -167,6 +181,7 @@ def _generate_governance_report(
         report['compliance_percentage'] = 100
         report['governance_score'] = 1.0
     
+    # Add summary statistics
     report['summary'] = {
         'governance_level': _determine_governance_level(report['governance_score']),
         'critical_violations': len([v for v in report['violations'] if v.get('severity') == 'critical']),
@@ -194,6 +209,7 @@ def _check_asset_compliance(
     Returns:
         Dictionary with compliance status, violations, and recommendations
     """
+    
     result = {
         'compliant': True,
         'violations': [],
@@ -201,10 +217,15 @@ def _check_asset_compliance(
         'recommendations': []
     }
     
+    # Cloud SQL compliance checks
     if asset_type == 'sqladmin.googleapis.com/Instance':
         result.update(_check_cloudsql_compliance(asset_name, config))
+    
+    # Spanner compliance checks
     elif asset_type == 'spanner.googleapis.com/Instance':
         result.update(_check_spanner_compliance(asset_name, config))
+    
+    # Bigtable compliance checks
     elif asset_type == 'bigtableadmin.googleapis.com/Instance':
         result.update(_check_bigtable_compliance(asset_name, config))
     
@@ -222,6 +243,7 @@ def _check_cloudsql_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
     
     settings = config.get('settings', {})
     
+    # Check backup configuration
     backup_config = settings.get('backupConfiguration', {})
     if not backup_config.get('enabled', False):
         result['compliant'] = False
@@ -233,6 +255,7 @@ def _check_cloudsql_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
             'recommendation': 'Enable automated backups with appropriate retention period'
         })
     
+    # Check SSL enforcement
     ip_config = settings.get('ipConfiguration', {})
     if not ip_config.get('requireSsl', False):
         result['security_findings'].append({
@@ -242,6 +265,7 @@ def _check_cloudsql_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
             'recommendation': 'Enable SSL/TLS requirement for secure connections'
         })
     
+    # Check public IP configuration
     if ip_config.get('ipv4Enabled', True):
         result['security_findings'].append({
             'resource': asset_name,
@@ -250,6 +274,7 @@ def _check_cloudsql_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
             'recommendation': 'Consider using private IP for enhanced security'
         })
     
+    # Check deletion protection
     if not config.get('settings', {}).get('deletionProtectionEnabled', False):
         result['recommendations'].append({
             'resource': asset_name,
@@ -269,6 +294,7 @@ def _check_spanner_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[s
         'recommendations': []
     }
     
+    # Check encryption configuration
     encryption_config = config.get('encryptionConfig')
     if not encryption_config:
         result['security_findings'].append({
@@ -278,6 +304,7 @@ def _check_spanner_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[s
             'recommendation': 'Consider using customer-managed encryption keys (CMEK) for enhanced security'
         })
     
+    # Check node count for production readiness
     node_count = config.get('nodeCount', 0)
     if node_count < 3:
         result['recommendations'].append({
@@ -298,6 +325,7 @@ def _check_bigtable_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
         'recommendations': []
     }
     
+    # Check instance type
     instance_type = config.get('type', '')
     if instance_type == 'DEVELOPMENT':
         result['recommendations'].append({
@@ -306,6 +334,7 @@ def _check_bigtable_compliance(asset_name: str, config: Dict[str, Any]) -> Dict[
             'priority': 'high'
         })
     
+    # Check cluster configuration
     clusters = config.get('clusters', [])
     for cluster in clusters:
         if cluster.get('serveNodes', 0) < 3:
@@ -355,6 +384,7 @@ def _upload_report_to_storage(
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
         
+        # Upload report as JSON
         blob.upload_from_string(
             json.dumps(report, indent=2, default=str),
             content_type='application/json'
@@ -374,6 +404,8 @@ def _log_compliance_metrics(report: Dict[str, Any]) -> None:
     Args:
         report: Compliance report containing metrics to log
     """
+    
+    # Log structured compliance data for monitoring
     compliance_data = {
         'compliance_percentage': report.get('compliance_percentage', 0),
         'total_databases': report.get('total_databases', 0),
@@ -385,6 +417,7 @@ def _log_compliance_metrics(report: Dict[str, Any]) -> None:
         'governance_level': report.get('summary', {}).get('governance_level', 'unknown')
     }
     
+    # Print structured log entry for Cloud Logging
     print(json.dumps({
         'message': 'Database governance compliance report generated',
         'severity': 'INFO',
@@ -392,17 +425,19 @@ def _log_compliance_metrics(report: Dict[str, Any]) -> None:
         'compliance': compliance_data
     }))
     
+    # Log any critical violations
     for violation in report.get('violations', []):
         if violation.get('severity') == 'critical':
             print(json.dumps({
                 'message': f"Critical compliance violation detected: {violation.get('issue', 'unknown')}",
-                'severity': 'ERROR',
+                'severity': 'ERROR', 
                 'component': 'compliance-reporter',
                 'violation': violation
             }))
 
 
 if __name__ == '__main__':
+    # For local testing
     import flask
     
     app = flask.Flask(__name__)
@@ -412,4 +447,4 @@ if __name__ == '__main__':
         request = flask.request
         return generate_compliance_report(request)
     
-    app.run(debug=True, host='127.0.0.1', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=8080)
