@@ -168,8 +168,24 @@ class QDeveloperInfrastructureStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "cloudformation:ValidateTemplate",
+                    "cloudformation:CreateStack",
                     "cloudformation:DescribeStacks",
-                    "cloudformation:DescribeStackEvents"
+                    "cloudformation:DescribeStackEvents",
+                    "cloudformation:UpdateStack",
+                    "cloudformation:DeleteStack"
+                ],
+                resources=["*"]
+            )
+        )
+        
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iam:PassRole",
+                    "iam:CreateRole",
+                    "iam:AttachRolePolicy",
+                    "iam:GetRole"
                 ],
                 resources=["*"]
             )

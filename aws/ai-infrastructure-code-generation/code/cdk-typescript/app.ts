@@ -76,6 +76,7 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
               effect: iam.Effect.ALLOW,
               actions: [
                 'cloudformation:ValidateTemplate',
+                'cloudformation:CreateStack',
                 'cloudformation:DescribeStacks',
                 'cloudformation:DescribeStackEvents',
                 'cloudformation:UpdateStack',
@@ -88,6 +89,9 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
+                'iam:PassRole',
+                'iam:CreateRole',
+                'iam:AttachRolePolicy',
                 'iam:GetRole',
                 'iam:ListRoles',
               ],

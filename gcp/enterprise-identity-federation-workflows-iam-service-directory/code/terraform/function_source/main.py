@@ -347,12 +347,6 @@ def get_provisioner() -> IdentityProvisioner:
         provisioner = IdentityProvisioner()
     return provisioner
 
-def _sanitize_for_logging(value: Any) -> str:
-    """Return a safe, non-user-controlled placeholder for logs."""
-    if value is None:
-        return "unknown"
-    return "provided"
-
 @functions_framework.http
 def provision_identity(request: Request) -> Tuple[Dict[str, Any], int]:
     """
@@ -385,8 +379,8 @@ def provision_identity(request: Request) -> Tuple[Dict[str, Any], int]:
         if not request_json:
             return ({'error': 'Invalid JSON or empty request body'}, 400, headers)
         
-        # Log the incoming request without reflecting user-controlled data
-        logger.info("Received provisioning request")
+        # Log the incoming request (excluding sensitive data)
+        logger.info(f"Received provisioning request for identity: {request_json.get('identity', 'unknown')}")
         
         # Get provisioner and process request
         identity_provisioner = get_provisioner()
@@ -452,4 +446,4 @@ if __name__ == '__main__':
     def local_health():
         return health_check(flask.request)
     
-    app.run(debug=True, host='127.0.0.1', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=8080)

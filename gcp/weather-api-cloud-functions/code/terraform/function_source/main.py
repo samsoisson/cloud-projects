@@ -318,4 +318,4 @@ if __name__ == "__main__":
     print("Health check available at: http://localhost:8080/health")
     print("Example: http://localhost:8080?city=Tokyo")
     
-    app.run(host='127.0.0.1', port=8080, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)

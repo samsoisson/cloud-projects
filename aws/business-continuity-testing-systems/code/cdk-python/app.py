@@ -82,24 +82,19 @@ class BusinessContinuityTestingStack(Stack):
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                "ssm:StartAutomationExecution",
-                                "ssm:DescribeAutomationExecutions",
-                                "ssm:GetAutomationExecution",
-                                "ec2:TerminateInstances",
-                                "ec2:DescribeInstances",
-                                "rds:RestoreDBInstanceFromDBSnapshot",
-                                "rds:DescribeDBInstances",
-                                "rds:DeleteDBInstance",
-                                "s3:PutObject",
-                                "s3:GetObject",
-                                "s3:ListBucket",
-                                "sns:Publish",
-                                "logs:CreateLogGroup",
-                                "logs:CreateLogStream",
-                                "logs:PutLogEvents",
-                                "backup:StartRestoreJob",
-                                "backup:DescribeRestoreJob",
-                                "route53:ChangeResourceRecordSets"
+                                "ssm:*",
+                                "ec2:*",
+                                "rds:*",
+                                "s3:*",
+                                "lambda:*",
+                                "states:*",
+                                "events:*",
+                                "cloudwatch:*",
+                                "sns:*",
+                                "logs:*",
+                                "backup:*",
+                                "iam:PassRole",
+                                "route53:*"
                             ],
                             resources=["*"]
                         )
