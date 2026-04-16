@@ -5,8 +5,10 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as vpclattice from 'aws-cdk-lib/aws-vpclattice';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 import { AwsSolutionsChecks } from 'cdk-nag';
 
@@ -24,7 +26,7 @@ interface CanaryDeploymentStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for implementing progressive canary deployments using VPC Lattice and Lambda
- * 
+ *
  * This stack creates:
  * - Two Lambda function versions (production and canary)
  * - VPC Lattice service network and service for weighted routing
@@ -61,12 +63,10 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // Add VPC Lattice invoke permissions
-    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: ['*'], // Will be restricted to specific functions after creation
-    }));
+    const lambdaEnvironmentKey = new kms.Key(this, 'LambdaEnvironmentKey', {
+      description: 'KMS key for Lambda environment variable encryption',
+      enableKeyRotation: true,
+    });
 
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
@@ -97,12 +97,9 @@ def handler(event, context):
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       description: 'Production version for canary deployment',
-      architecture: lambda.Architecture.ARM_64, // Cost-optimized ARM architecture
-      logRetention: logs.RetentionDays.ONE_WEEK, // Security best practice
-      environmentEncryption: new cdk.aws_kms.Key(this, 'LambdaEnvironmentKey', {
-        description: 'KMS key for Lambda environment variable encryption',
-        enableKeyRotation: true,
-      }),
+      architecture: lambda.Architecture.ARM_64,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+      environmentEncryption: lambdaEnvironmentKey,
     });
 
     // Create canary Lambda function (version 2) with enhanced features
@@ -114,19 +111,18 @@ def handler(event, context):
 import json
 import time
 import random
-import os
 
 def handler(event, context):
     """Canary version with enhanced features"""
-    
+
     # Simulate enhanced processing
     features = ['feature-a', 'feature-b', 'enhanced-logging']
     response_time = random.randint(50, 200)
-    
+
     # Add custom CloudWatch metric
     import boto3
     cloudwatch = boto3.client('cloudwatch')
-    
+
     try:
         cloudwatch.put_metric_data(
             Namespace='CanaryDeployment/Lambda',
@@ -146,7 +142,7 @@ def handler(event, context):
         )
     except Exception as e:
         print(f"Failed to send custom metric: {e}")
-    
+
     return {
         'statusCode': 200,
         'headers': {
@@ -170,7 +166,7 @@ def handler(event, context):
       description: 'Canary version with enhanced features',
       architecture: lambda.Architecture.ARM_64,
       logRetention: logs.RetentionDays.ONE_WEEK,
-      environmentEncryption: this.productionFunction.environmentEncryption,
+      environmentEncryption: lambdaEnvironmentKey,
     });
 
     // Grant CloudWatch permissions to canary function for custom metrics
@@ -194,7 +190,7 @@ def handler(event, context):
     // Create VPC Lattice service network
     this.serviceNetwork = new vpclattice.CfnServiceNetwork(this, 'CanaryServiceNetwork', {
       name: `canary-demo-network-${this.stackName.toLowerCase()}`,
-      authType: 'NONE', // For demo purposes - production should use IAM
+      authType: 'NONE',
     });
 
     // Create target group for production Lambda version
@@ -306,7 +302,7 @@ def handler(event, context):
         period: cdk.Duration.minutes(5),
         statistic: 'Average',
       }),
-      threshold: 5000, // 5 seconds
+      threshold: 5000,
       evaluationPeriods: 2,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
@@ -324,7 +320,7 @@ def handler(event, context):
         period: cdk.Duration.minutes(5),
         statistic: 'Average',
       }),
-      threshold: 150, // 150ms average response time
+      threshold: 150,
       evaluationPeriods: 3,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
@@ -347,24 +343,24 @@ import os
 
 def handler(event, context):
     """Automatic rollback function triggered by CloudWatch alarms"""
-    
+
     lattice = boto3.client('vpc-lattice')
-    
+
     try:
         # Parse SNS message
         if 'Records' in event and event['Records']:
             sns_message = json.loads(event['Records'][0]['Sns']['Message'])
             alarm_name = sns_message.get('AlarmName', '')
             new_state = sns_message.get('NewStateValue', '')
-            
+
             print(f"Processing alarm: {alarm_name}, state: {new_state}")
-            
+
             if 'canary' in alarm_name.lower() and new_state == 'ALARM':
                 # Trigger rollback to 100% production traffic
                 service_id = os.environ['SERVICE_ID']
                 listener_id = os.environ['LISTENER_ID']
                 prod_target_group_id = os.environ['PROD_TARGET_GROUP_ID']
-                
+
                 response = lattice.update_listener(
                     serviceIdentifier=service_id,
                     listenerIdentifier=listener_id,
@@ -379,9 +375,9 @@ def handler(event, context):
                         }
                     }
                 )
-                
+
                 print(f"Rollback completed successfully. Listener updated: {response}")
-                
+
                 # Send notification
                 sns = boto3.client('sns')
                 sns.publish(
@@ -391,7 +387,7 @@ def handler(event, context):
                            f"All traffic has been routed back to production version.\\n"
                            f"Timestamp: {context.aws_request_id}"
                 )
-                
+
                 return {
                     'statusCode': 200,
                     'body': json.dumps({
@@ -400,7 +396,7 @@ def handler(event, context):
                         'request_id': context.aws_request_id
                     })
                 }
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -408,7 +404,7 @@ def handler(event, context):
                 'request_id': context.aws_request_id
             })
         }
-            
+
     except Exception as e:
         print(f"Rollback failed: {str(e)}")
         return {
@@ -447,18 +443,7 @@ def handler(event, context):
       this.rollbackTopic.grantPublish(rollbackFunction);
 
       // Subscribe rollback function to all canary alarms
-      const rollbackSubscription = new sns.Subscription(this, 'RollbackSubscription', {
-        topic: this.rollbackTopic,
-        endpoint: rollbackFunction.functionArn,
-        protocol: sns.SubscriptionProtocol.LAMBDA,
-      });
-
-      // Grant SNS permission to invoke rollback function
-      rollbackFunction.addPermission('AllowSNSInvoke', {
-        principal: new iam.ServicePrincipal('sns.amazonaws.com'),
-        action: 'lambda:InvokeFunction',
-        sourceArn: this.rollbackTopic.topicArn,
-      });
+      this.rollbackTopic.addSubscription(new subscriptions.LambdaSubscription(rollbackFunction));
 
       // Add alarms to SNS topic for automatic rollback
       canaryErrorAlarm.addAlarmAction({
@@ -535,12 +520,10 @@ const stack = new CanaryDeploymentStack(app, 'CanaryDeploymentStack', {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
   },
-  canaryWeight: 10,      // 10% traffic to canary
-  productionWeight: 90,  // 90% traffic to production
+  canaryWeight: 10,
+  productionWeight: 90,
   enableAutoRollback: true,
-  
-  // Enable termination protection for production deployments
-  terminationProtection: false, // Set to true for production
+  terminationProtection: false,
 });
 
 // Add additional stack-level tags

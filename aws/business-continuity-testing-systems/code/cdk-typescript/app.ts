@@ -134,10 +134,26 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
         'cloudwatch:*',
         'sns:*',
         'logs:*',
-        'backup:*',
-        'iam:PassRole'
+        'backup:*'
       ],
       resources: ['*']
+    }));
+
+    role.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: [role.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': [
+            'ssm.amazonaws.com',
+            'lambda.amazonaws.com',
+            'states.amazonaws.com',
+            'events.amazonaws.com',
+            'backup.amazonaws.com'
+          ]
+        }
+      }
     }));
 
     // Apply tags

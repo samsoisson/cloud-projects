@@ -47,9 +47,9 @@ class BusinessContinuityTestingStack(Stack):
         self.notification_email = self.node.try_get_context("notification_email") or "admin@example.com"
         
         # Create core infrastructure
-        self._create_iam_roles()
-        self._create_s3_bucket()
         self._create_sns_topic()
+        self._create_s3_bucket()
+        self._create_iam_roles()
         self._create_automation_documents()
         self._create_lambda_functions()
         self._create_event_rules()
@@ -93,10 +93,16 @@ class BusinessContinuityTestingStack(Stack):
                                 "sns:*",
                                 "logs:*",
                                 "backup:*",
-                                "iam:PassRole",
                                 "route53:*"
                             ],
                             resources=["*"]
+                        ),
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "iam:PassRole"
+                            ],
+                            resources=[self.automation_role.role_arn]
                         )
                     ]
                 )
@@ -580,7 +586,6 @@ class BusinessContinuityTestingStack(Stack):
             dashboard_name=f"BC-Testing-{self.project_id}",
             widgets=[
                 [
-                    # Lambda metrics widget
                     cloudwatch.GraphWidget(
                         title="BC Testing Lambda Metrics",
                         left=[
@@ -593,7 +598,6 @@ class BusinessContinuityTestingStack(Stack):
                     )
                 ],
                 [
-                    # Systems Manager automation metrics
                     cloudwatch.SingleValueWidget(
                         title="BC Testing Success/Failure Rates",
                         metrics=[
@@ -621,7 +625,6 @@ class BusinessContinuityTestingStack(Stack):
                     )
                 ],
                 [
-                    # Log insights widget
                     cloudwatch.LogQueryWidget(
                         title="Recent BC Test Executions",
                         log_groups=[
@@ -712,21 +715,17 @@ def lambda_handler(event, context):
     
     try:
         if test_type in ['daily', 'weekly', 'monthly']:
-            # Execute backup validation
             backup_result = execute_backup_validation(ssm, test_id)
             test_results['results'].append(backup_result)
         
         if test_type in ['weekly', 'monthly']:
-            # Execute database recovery test
             db_result = execute_database_recovery_test(ssm, test_id)
             test_results['results'].append(db_result)
         
         if test_type == 'monthly':
-            # Execute full application failover test
             app_result = execute_application_failover_test(ssm, test_id)
             test_results['results'].append(app_result)
         
-        # Store results in S3
         s3.put_object(
             Bucket=os.environ['RESULTS_BUCKET'],
             Key=f'test-results/{test_type}/{test_id}/results.json',
@@ -734,10 +733,8 @@ def lambda_handler(event, context):
             ContentType='application/json'
         )
         
-        # Generate summary report
         summary = generate_test_summary(test_results)
         
-        # Send notification
         sns.publish(
             TopicArn=os.environ['SNS_TOPIC_ARN'],
             Subject=f'BC Testing {test_type.title()} Report - {test_id[:8]}',
@@ -844,10 +841,8 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
     ssm = boto3.client('ssm')
     
-    # Generate monthly compliance report
     report_data = generate_compliance_report(s3, ssm)
     
-    # Store compliance report
     report_key = f"compliance-reports/{datetime.datetime.utcnow().strftime('%Y-%m')}/bc-compliance-report.json"
     
     s3.put_object(
@@ -857,7 +852,6 @@ def lambda_handler(event, context):
         ContentType='application/json'
     )
     
-    # Generate HTML report
     html_report = generate_html_report(report_data)
     
     s3.put_object(
@@ -876,7 +870,6 @@ def lambda_handler(event, context):
     }
 
 def generate_compliance_report(s3, ssm):
-    # Collect test execution data from the past month
     start_date = datetime.datetime.utcnow() - datetime.timedelta(days=30)
     
     report = {
@@ -895,9 +888,6 @@ def generate_compliance_report(s3, ssm):
         'complianceStatus': 'COMPLIANT',
         'recommendations': []
     }
-    
-    # Analyze test execution history
-    # This would integrate with actual Systems Manager execution history
     
     return report
 

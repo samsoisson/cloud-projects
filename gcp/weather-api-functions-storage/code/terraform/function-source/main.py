@@ -106,7 +106,7 @@ def weather_api(request: Request):
             'humidity': weather_data.get('main', {}).get('humidity', 0),
             'pressure': weather_data.get('main', {}).get('pressure', 0),
             'wind_speed': weather_data.get('wind', {}).get('speed', 0),
-            'visibility': weather_data.get('visibility', 0) / 1000 if weather_data.get('visibility') else 0,  # Convert to km
+            'visibility': weather_data.get('visibility', 0) / 1000 if weather_data.get('visibility') else 0,
             'cached_at': datetime.utcnow().isoformat() + 'Z',
             'from_cache': False,
             'cache_status': 'miss',
@@ -180,7 +180,6 @@ def get_cached_weather(city: str) -> dict:
             return cached_data
         else:
             logger.info(f"Cached data for {city} is expired, age: {cache_age}")
-            # Optionally delete expired cache
             try:
                 blob.delete()
                 logger.info(f"Deleted expired cache for {city}")
@@ -210,18 +209,15 @@ def cache_weather_data(city: str, data: dict) -> None:
     try:
         blob = bucket.blob(cache_key)
         
-        # Add cache metadata
         cache_data = data.copy()
         cache_data['cached_at'] = datetime.utcnow().isoformat() + 'Z'
         cache_data['cache_expiry'] = (datetime.utcnow() + timedelta(minutes=CACHE_DURATION_MINUTES)).isoformat() + 'Z'
         
-        # Upload to storage with metadata
         blob.upload_from_string(
             json.dumps(cache_data, indent=2),
             content_type='application/json'
         )
         
-        # Set custom metadata
         blob.metadata = {
             'city': city,
             'cached_timestamp': str(int(datetime.utcnow().timestamp())),
@@ -247,21 +243,18 @@ def fetch_weather_data(city: str) -> dict:
         Dictionary with weather data from external API
     """
     
-    # Use demo data if using demo API key
     if WEATHER_API_KEY == 'demo_key':
         logger.info(f"Using demo weather data for {city}")
         return get_demo_weather_data(city)
     
-    # Construct API URL for OpenWeatherMap
     api_url = f"https://api.openweathermap.org/data/2.5/weather"
     params = {
         'q': city,
         'appid': WEATHER_API_KEY,
-        'units': 'metric'  # Use metric units (Celsius, m/s, etc.)
+        'units': 'metric'
     }
     
     try:
-        # Make request with timeout
         response = requests.get(api_url, params=params, timeout=10)
         response.raise_for_status()
         
@@ -298,32 +291,30 @@ def get_demo_weather_data(city: str) -> dict:
         Dictionary with demo weather data
     """
     
-    # Demo data based on city name hash for consistency
     city_hash = hash(city.lower()) % 1000
     
     demo_data = {
         'name': city.title(),
         'sys': {'country': 'XX'},
         'main': {
-            'temp': 15 + (city_hash % 20),  # Temperature between 15-35°C
+            'temp': 15 + (city_hash % 20),
             'feels_like': 13 + (city_hash % 22),
-            'humidity': 40 + (city_hash % 40),  # Humidity between 40-80%
-            'pressure': 1000 + (city_hash % 50)  # Pressure around 1000-1050 hPa
+            'humidity': 40 + (city_hash % 40),
+            'pressure': 1000 + (city_hash % 50)
         },
         'weather': [{
             'description': ['clear sky', 'few clouds', 'scattered clouds', 'broken clouds', 'light rain'][city_hash % 5]
         }],
         'wind': {
-            'speed': (city_hash % 15) + 1  # Wind speed 1-15 m/s
+            'speed': (city_hash % 15) + 1
         },
-        'visibility': 8000 + (city_hash % 2000)  # Visibility 8-10 km
+        'visibility': 8000 + (city_hash % 2000)
     }
     
     return demo_data
 
 
 if __name__ == '__main__':
-    # For local testing
     from flask import Flask
     app = Flask(__name__)
     
@@ -332,4 +323,4 @@ if __name__ == '__main__':
         from flask import request
         return weather_api(request)
     
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    app.run(host='127.0.0.1', port=8080, debug=True)

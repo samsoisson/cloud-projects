@@ -8,6 +8,7 @@ import * as codedeploy from 'aws-cdk-lib/aws-codedeploy';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as path from 'path';
 import { Construct } from 'constructs';
@@ -222,7 +223,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       ],
       environment: {
         APP_VERSION: '1.0.0',
-        ENVIRONMENT: 'blue',
+        ENVIRONMENT: environment,
         PORT: '8080',
       },
       logging: ecs.LogDrivers.awsLogs({
@@ -268,7 +269,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       role: lambdaRole,
       environment: {
         VERSION: '1.0.0',
-        ENVIRONMENT: 'blue',
+        ENVIRONMENT: environment,
       },
       description: 'Lambda function for blue-green deployment demo',
     });
@@ -305,7 +306,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       evaluationPeriods: 3,
     });
 
-    ecsHighErrorRateAlarm.addAlarmAction(new cloudwatch.SnsAction(notificationTopic));
+    ecsHighErrorRateAlarm.addAlarmAction(new cloudwatchActions.SnsAction(notificationTopic));
 
     const ecsHighResponseTimeAlarm = new cloudwatch.Alarm(this, 'ECSHighResponseTimeAlarm', {
       alarmName: `${projectName}-ecs-high-response-time-${uniqueSuffix}`,
@@ -325,7 +326,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       evaluationPeriods: 5,
     });
 
-    ecsHighResponseTimeAlarm.addAlarmAction(new cloudwatch.SnsAction(notificationTopic));
+    ecsHighResponseTimeAlarm.addAlarmAction(new cloudwatchActions.SnsAction(notificationTopic));
 
     // CloudWatch Alarms for Lambda Function
     const lambdaHighErrorRateAlarm = new cloudwatch.Alarm(this, 'LambdaHighErrorRateAlarm', {
@@ -340,7 +341,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       evaluationPeriods: 3,
     });
 
-    lambdaHighErrorRateAlarm.addAlarmAction(new cloudwatch.SnsAction(notificationTopic));
+    lambdaHighErrorRateAlarm.addAlarmAction(new cloudwatchActions.SnsAction(notificationTopic));
 
     const lambdaHighDurationAlarm = new cloudwatch.Alarm(this, 'LambdaHighDurationAlarm', {
       alarmName: `${projectName}-lambda-high-duration-${uniqueSuffix}`,
@@ -354,7 +355,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
       evaluationPeriods: 5,
     });
 
-    lambdaHighDurationAlarm.addAlarmAction(new cloudwatch.SnsAction(notificationTopic));
+    lambdaHighDurationAlarm.addAlarmAction(new cloudwatchActions.SnsAction(notificationTopic));
 
     // Deployment Hook Lambda Functions
     const deploymentHookRole = new iam.Role(this, 'DeploymentHookRole', {
@@ -371,7 +372,6 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
                 'codedeploy:PutLifecycleEventHookExecutionStatus',
                 'ecs:DescribeServices',
                 'ecs:DescribeTasks',
-                'lambda:InvokeFunction',
                 'cloudwatch:PutMetricData',
                 'logs:CreateLogGroup',
                 'logs:CreateLogStream',

@@ -16,11 +16,8 @@ from aws_cdk import (
     aws_s3_deployment as s3deploy,
     RemovalPolicy,
     CfnOutput,
-    Duration,
 )
 from constructs import Construct
-import json
-from typing import Dict, Any
 
 
 class ServiceCatalogPortfolioStack(Stack):
@@ -32,10 +29,8 @@ class ServiceCatalogPortfolioStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Generate unique suffix for resource names
         unique_suffix = self.node.addr[-8:].lower()
-        
-        # Create S3 bucket for CloudFormation templates
+
         template_bucket = s3.Bucket(
             self, "TemplateBucket",
             bucket_name=f"service-catalog-templates-{unique_suffix}",
@@ -46,10 +41,8 @@ class ServiceCatalogPortfolioStack(Stack):
             auto_delete_objects=True,
         )
 
-        # Deploy CloudFormation templates to S3
-        self._deploy_templates(template_bucket, unique_suffix)
+        self._deploy_templates(template_bucket)
 
-        # Create Service Catalog portfolio
         portfolio = servicecatalog.Portfolio(
             self, "Portfolio",
             display_name=f"enterprise-infrastructure-{unique_suffix}",
@@ -57,18 +50,14 @@ class ServiceCatalogPortfolioStack(Stack):
             provider_name="IT Infrastructure Team",
         )
 
-        # Create IAM role for launch constraints
         launch_role = self._create_launch_role(unique_suffix)
 
-        # Create Service Catalog products
         s3_product = self._create_s3_product(template_bucket, unique_suffix)
         lambda_product = self._create_lambda_product(template_bucket, unique_suffix)
 
-        # Add products to portfolio
         portfolio.add_product(s3_product)
         portfolio.add_product(lambda_product)
 
-        # Apply launch constraints
         servicecatalog.CfnLaunchRoleConstraint(
             self, "S3LaunchConstraint",
             portfolio_id=portfolio.portfolio_id,
@@ -83,10 +72,8 @@ class ServiceCatalogPortfolioStack(Stack):
             role_arn=launch_role.role_arn,
         )
 
-        # Grant portfolio access to current user/role
         self._grant_portfolio_access(portfolio)
 
-        # Outputs
         CfnOutput(
             self, "PortfolioId",
             value=portfolio.portfolio_id,
@@ -123,21 +110,16 @@ class ServiceCatalogPortfolioStack(Stack):
             description="S3 bucket containing CloudFormation templates",
         )
 
-    def _deploy_templates(self, bucket: s3.Bucket, suffix: str) -> None:
+    def _deploy_templates(self, bucket: s3.Bucket) -> None:
         """
         Deploy CloudFormation templates to S3 bucket for Service Catalog products.
-        
+
         Args:
             bucket: S3 bucket to store templates
-            suffix: Unique suffix for resource naming
         """
-        # S3 Bucket CloudFormation Template
         s3_template = self._get_s3_template()
-        
-        # Lambda Function CloudFormation Template
         lambda_template = self._get_lambda_template()
 
-        # Deploy templates to S3
         s3deploy.BucketDeployment(
             self, "TemplateDeployment",
             sources=[
@@ -150,10 +132,10 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_launch_role(self, suffix: str) -> iam.Role:
         """
         Create IAM role for Service Catalog launch constraints.
-        
+
         Args:
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             IAM role for launch constraints
         """
@@ -164,48 +146,74 @@ class ServiceCatalogPortfolioStack(Stack):
             description="IAM role for Service Catalog product launch constraints",
         )
 
-        # Create inline policy with necessary permissions
-        launch_policy = iam.PolicyDocument(
-            statements=[
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=[
-                        "s3:CreateBucket",
-                        "s3:DeleteBucket",
-                        "s3:PutBucketEncryption",
-                        "s3:PutBucketVersioning",
-                        "s3:PutBucketPublicAccessBlock",
-                        "s3:PutBucketTagging",
-                        "s3:GetBucketLocation",
-                        "s3:ListBucket",
-                        "lambda:CreateFunction",
-                        "lambda:DeleteFunction",
-                        "lambda:UpdateFunctionCode",
-                        "lambda:UpdateFunctionConfiguration",
-                        "lambda:TagResource",
-                        "lambda:UntagResource",
-                        "lambda:GetFunction",
-                        "lambda:ListTags",
-                        "iam:CreateRole",
-                        "iam:DeleteRole",
-                        "iam:AttachRolePolicy",
-                        "iam:DetachRolePolicy",
-                        "iam:PassRole",
-                        "iam:TagRole",
-                        "iam:UntagRole",
-                        "iam:GetRole",
-                        "iam:ListRolePolicies",
-                        "iam:ListAttachedRolePolicies",
-                    ],
-                    resources=["*"],
-                )
-            ]
-        )
-
         launch_role.attach_inline_policy(
             iam.Policy(
                 self, "LaunchPolicy",
-                document=launch_policy,
+                document=iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "s3:CreateBucket",
+                                "s3:DeleteBucket",
+                                "s3:PutBucketEncryption",
+                                "s3:PutBucketVersioning",
+                                "s3:PutBucketPublicAccessBlock",
+                                "s3:PutBucketTagging",
+                                "s3:GetBucketLocation",
+                                "s3:ListBucket",
+                            ],
+                            resources=["*"],
+                        ),
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "lambda:CreateFunction",
+                                "lambda:DeleteFunction",
+                                "lambda:UpdateFunctionCode",
+                                "lambda:UpdateFunctionConfiguration",
+                                "lambda:TagResource",
+                                "lambda:UntagResource",
+                                "lambda:GetFunction",
+                                "lambda:ListTags",
+                            ],
+                            resources=[
+                                f"arn:aws:lambda:{self.region}:{self.account}:function:*"
+                            ],
+                        ),
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "iam:CreateRole",
+                                "iam:DeleteRole",
+                                "iam:AttachRolePolicy",
+                                "iam:DetachRolePolicy",
+                                "iam:TagRole",
+                                "iam:UntagRole",
+                                "iam:GetRole",
+                                "iam:ListRolePolicies",
+                                "iam:ListAttachedRolePolicies",
+                            ],
+                            resources=[
+                                f"arn:aws:iam::{self.account}:role/servicecatalog-lambda-execution-*"
+                            ],
+                        ),
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "iam:PassRole",
+                            ],
+                            resources=[
+                                f"arn:aws:iam::{self.account}:role/servicecatalog-lambda-execution-*"
+                            ],
+                            conditions={
+                                "StringEquals": {
+                                    "iam:PassedToService": "lambda.amazonaws.com"
+                                }
+                            },
+                        ),
+                    ]
+                ),
             )
         )
 
@@ -214,11 +222,11 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_s3_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for S3 bucket deployment.
-        
+
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             Service Catalog CloudFormation product
         """
@@ -241,11 +249,11 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_lambda_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for Lambda function deployment.
-        
+
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-            
+
         Returns:
             Service Catalog CloudFormation product
         """
@@ -268,12 +276,10 @@ class ServiceCatalogPortfolioStack(Stack):
     def _grant_portfolio_access(self, portfolio: servicecatalog.Portfolio) -> None:
         """
         Grant portfolio access to the current AWS account root.
-        
+
         Args:
             portfolio: Service Catalog portfolio
         """
-        # Grant access to the account root - in practice, you would grant access
-        # to specific IAM users, groups, or roles
         servicecatalog.CfnPortfolioPrincipalAssociation(
             self, "PortfolioAccess",
             portfolio_id=portfolio.portfolio_id,
@@ -284,7 +290,7 @@ class ServiceCatalogPortfolioStack(Stack):
     def _get_s3_template(self) -> str:
         """
         Get S3 bucket CloudFormation template content.
-        
+
         Returns:
             CloudFormation template as YAML string
         """
@@ -337,7 +343,7 @@ Outputs:
     def _get_lambda_template(self) -> str:
         """
         Get Lambda function CloudFormation template content.
-        
+
         Returns:
             CloudFormation template as YAML string
         """
@@ -366,6 +372,7 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub 'servicecatalog-lambda-execution-${AWS::StackName}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -409,11 +416,8 @@ Outputs:
     Description: 'ARN of the created Lambda function'
     Value: !GetAtt LambdaFunction.Arn"""
 
-
-# CDK App
 app = cdk.App()
 
-# Create the Service Catalog Portfolio stack
 ServiceCatalogPortfolioStack(
     app, "ServiceCatalogPortfolioStack",
     description="AWS Service Catalog Portfolio with CloudFormation Templates",

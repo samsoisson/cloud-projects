@@ -8,9 +8,7 @@ using S3 event triggers, Lambda functions, and CloudFormation integration.
 """
 
 import os
-from typing import Any, Dict
 
-import aws_cdk as cdk
 from aws_cdk import (
     Stack,
     App,
@@ -23,7 +21,6 @@ from aws_cdk import (
     aws_iam as iam,
     aws_logs as logs,
     aws_s3_notifications as s3n,
-    aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
 
@@ -31,7 +28,7 @@ from constructs import Construct
 class QDeveloperInfrastructureStack(Stack):
     """
     Stack for Amazon Q Developer Infrastructure Code Generation system.
-    
+
     This stack creates:
     - S3 bucket for template storage with versioning and encryption
     - Lambda function for template processing and validation
@@ -43,52 +40,22 @@ class QDeveloperInfrastructureStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Generate unique identifier for resources
-        random_suffix = self._generate_random_suffix()
-        
-        # S3 bucket for template storage
-        self.template_bucket = self._create_template_bucket(random_suffix)
-        
-        # IAM role for Lambda function
-        self.lambda_role = self._create_lambda_execution_role(random_suffix)
-        
-        # Lambda function for template processing
-        self.template_processor = self._create_template_processor_function(random_suffix)
-        
-        # S3 event notification configuration
-        self._configure_s3_event_notification()
-        
-        # CloudWatch log group with retention policy
-        self._create_log_group()
-        
-        # Stack outputs
-        self._create_outputs()
+        suffix = self.node.addr[-6:].lower()
 
-    def _generate_random_suffix(self) -> str:
-        """Generate a random suffix for resource naming."""
-        # Create a random password parameter for unique naming
-        random_param = secretsmanager.Secret(
-            self, "RandomSuffix",
-            description="Random suffix for resource naming",
-            generate_secret_string=secretsmanager.SecretStringGenerator(
-                length=6,
-                exclude_punctuation=True,
-                exclude_uppercase=True,
-                require_each_included_type=True
-            ),
-            removal_policy=RemovalPolicy.DESTROY
-        )
-        
-        # Use the first 6 characters of the secret value
-        return random_param.secret_value.unsafe_unwrap()[:6]
+        self.template_bucket = self._create_template_bucket(suffix)
+        self.lambda_role = self._create_lambda_execution_role(suffix)
+        self.template_processor = self._create_template_processor_function(suffix)
+        self._configure_s3_event_notification()
+        self._create_log_group()
+        self._create_outputs()
 
     def _create_template_bucket(self, suffix: str) -> s3.Bucket:
         """
         Create S3 bucket for storing infrastructure templates.
-        
+
         Args:
             suffix: Random suffix for unique bucket naming
-            
+
         Returns:
             S3 Bucket construct
         """
@@ -99,7 +66,7 @@ class QDeveloperInfrastructureStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,  # For easier cleanup in development
+            auto_delete_objects=True,
             lifecycle_rules=[
                 s3.LifecycleRule(
                     id="ValidationResultsCleanup",
@@ -113,24 +80,23 @@ class QDeveloperInfrastructureStack(Stack):
                 )
             ]
         )
-        
-        # Add bucket notification placeholder (configured later)
+
         bucket.add_cors_rule(
             allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.PUT],
             allowed_origins=["*"],
             allowed_headers=["*"],
             max_age=3000
         )
-        
+
         return bucket
 
     def _create_lambda_execution_role(self, suffix: str) -> iam.Role:
         """
         Create IAM role for Lambda function with least privilege permissions.
-        
+
         Args:
             suffix: Random suffix for unique role naming
-            
+
         Returns:
             IAM Role construct
         """
@@ -145,8 +111,7 @@ class QDeveloperInfrastructureStack(Stack):
                 )
             ]
         )
-        
-        # Add custom inline policy for S3 and CloudFormation access
+
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -162,104 +127,66 @@ class QDeveloperInfrastructureStack(Stack):
                 ]
             )
         )
-        
+
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "cloudformation:ValidateTemplate",
-                    "cloudformation:CreateStack",
                     "cloudformation:DescribeStacks",
-                    "cloudformation:DescribeStackEvents",
-                    "cloudformation:UpdateStack",
-                    "cloudformation:DeleteStack"
+                    "cloudformation:DescribeStackEvents"
                 ],
                 resources=["*"]
             )
         )
-        
-        role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "iam:PassRole",
-                    "iam:CreateRole",
-                    "iam:AttachRolePolicy",
-                    "iam:GetRole"
-                ],
-                resources=["*"]
-            )
-        )
-        
+
         return role
 
     def _create_template_processor_function(self, suffix: str) -> lambda_.Function:
         """
         Create Lambda function for processing infrastructure templates.
-        
+
         Args:
             suffix: Random suffix for unique function naming
-            
+
         Returns:
             Lambda Function construct
         """
-        # Lambda function code
         function_code = '''
 import json
 import boto3
 import logging
 from urllib.parse import unquote_plus
 
-# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
 s3_client = boto3.client('s3')
 cfn_client = boto3.client('cloudformation')
 
 def lambda_handler(event, context):
     """
     Process CloudFormation templates uploaded to S3
-    Validates templates and optionally deploys infrastructure
+    Validates templates and stores validation results
     """
     try:
-        # Parse S3 event notification
         for record in event['Records']:
             bucket = record['s3']['bucket']['name']
             key = unquote_plus(record['s3']['object']['key'])
-            
+
             logger.info(f"Processing template: {key} from bucket: {bucket}")
-            
-            # Download template from S3
+
             response = s3_client.get_object(Bucket=bucket, Key=key)
             template_body = response['Body'].read().decode('utf-8')
-            
-            # Validate CloudFormation template
+
             try:
                 validation_response = cfn_client.validate_template(
                     TemplateBody=template_body
                 )
-                logger.info(f"Template validation successful: {validation_response.get('Description', 'No description')}")
-                
-                # Extract metadata from template
-                template_data = json.loads(template_body) if template_body.strip().startswith('{') else {}
-                stack_name = template_data.get('Metadata', {}).get('StackName', f"q-developer-stack-{key.replace('.json', '').replace('/', '-')}")
-                
-                # Create CloudFormation stack (optional - controlled by parameter)
-                if key.startswith('auto-deploy/'):
-                    logger.info(f"Auto-deploying stack: {stack_name}")
-                    cfn_client.create_stack(
-                        StackName=stack_name,
-                        TemplateBody=template_body,
-                        Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
-                        Tags=[
-                            {'Key': 'Source', 'Value': 'QDeveloperAutomation'},
-                            {'Key': 'TemplateFile', 'Value': key}
-                        ]
-                    )
-                    
-                # Store validation results
+                logger.info(
+                    f"Template validation successful: {validation_response.get('Description', 'No description')}"
+                )
+
                 validation_result = {
                     'template_file': key,
                     'validation_status': 'VALID',
@@ -267,8 +194,7 @@ def lambda_handler(event, context):
                     'parameters': validation_response.get('Parameters', []),
                     'capabilities': validation_response.get('Capabilities', [])
                 }
-                
-                # Save validation results to S3
+
                 result_key = f"validation-results/{key.replace('.json', '-validation.json')}"
                 s3_client.put_object(
                     Bucket=bucket,
@@ -276,17 +202,16 @@ def lambda_handler(event, context):
                     Body=json.dumps(validation_result, indent=2),
                     ContentType='application/json'
                 )
-                
+
             except Exception as validation_error:
                 logger.error(f"Template validation failed: {str(validation_error)}")
-                
-                # Store validation error
+
                 error_result = {
                     'template_file': key,
                     'validation_status': 'INVALID',
                     'error': str(validation_error)
                 }
-                
+
                 result_key = f"validation-results/{key.replace('.json', '-error.json')}"
                 s3_client.put_object(
                     Bucket=bucket,
@@ -294,12 +219,12 @@ def lambda_handler(event, context):
                     Body=json.dumps(error_result, indent=2),
                     ContentType='application/json'
                 )
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps('Template processing completed successfully')
         }
-        
+
     except Exception as e:
         logger.error(f"Lambda execution error: {str(e)}")
         return {
@@ -307,7 +232,7 @@ def lambda_handler(event, context):
             'body': json.dumps(f'Error processing template: {str(e)}')
         }
 '''
-        
+
         function = lambda_.Function(
             self, "TemplateProcessorFunction",
             function_name=f"template-processor-{suffix}",
@@ -324,7 +249,7 @@ def lambda_handler(event, context):
             },
             retry_attempts=2
         )
-        
+
         return function
 
     def _configure_s3_event_notification(self) -> None:
@@ -355,32 +280,32 @@ def lambda_handler(event, context):
             description="S3 bucket name for storing infrastructure templates",
             export_name=f"{self.stack_name}-TemplateBucket"
         )
-        
+
         CfnOutput(
             self, "TemplateBucketArn",
             value=self.template_bucket.bucket_arn,
             description="S3 bucket ARN for storing infrastructure templates"
         )
-        
+
         CfnOutput(
             self, "LambdaFunctionName",
             value=self.template_processor.function_name,
             description="Lambda function name for template processing",
             export_name=f"{self.stack_name}-LambdaFunction"
         )
-        
+
         CfnOutput(
             self, "LambdaFunctionArn",
             value=self.template_processor.function_arn,
             description="Lambda function ARN for template processing"
         )
-        
+
         CfnOutput(
             self, "IAMRoleName",
             value=self.lambda_role.role_name,
             description="IAM role name for Lambda execution"
         )
-        
+
         CfnOutput(
             self, "IAMRoleArn",
             value=self.lambda_role.role_arn,
@@ -391,14 +316,12 @@ def lambda_handler(event, context):
 def main() -> None:
     """Main function to create and deploy the CDK application."""
     app = App()
-    
-    # Get environment configuration
+
     env = Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
         region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1")
     )
-    
-    # Create the stack
+
     QDeveloperInfrastructureStack(
         app, "QDeveloperInfrastructureStack",
         env=env,
@@ -409,7 +332,7 @@ def main() -> None:
             "ManagedBy": "CDK"
         }
     )
-    
+
     app.synth()
 
 
