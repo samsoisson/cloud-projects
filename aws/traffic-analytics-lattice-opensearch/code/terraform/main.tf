@@ -84,7 +84,8 @@ resource "aws_opensearch_domain" "traffic_analytics" {
   }
 
   domain_endpoint_options {
-    enforce_https = true
+    enforce_https       = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
   # Open access policy for demo purposes - restrict in production

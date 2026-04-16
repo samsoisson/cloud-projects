@@ -93,7 +93,6 @@ class BusinessContinuityTestingStack(Stack):
                                 "sns:*",
                                 "logs:*",
                                 "backup:*",
-                                "iam:PassRole",
                                 "route53:*"
                             ],
                             resources=["*"]

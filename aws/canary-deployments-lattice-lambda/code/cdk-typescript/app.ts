@@ -61,13 +61,6 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // Add VPC Lattice invoke permissions
-    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: ['*'], // Will be restricted to specific functions after creation
-    }));
-
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
       runtime: lambda.Runtime.PYTHON_3_11,

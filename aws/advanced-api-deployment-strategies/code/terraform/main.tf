@@ -638,6 +638,8 @@ resource "aws_api_gateway_domain_name" "custom_domain" {
     types = ["REGIONAL"]
   }
 
+  security_policy = "TLS_1_2"
+
   tags = local.common_tags
 }
 
