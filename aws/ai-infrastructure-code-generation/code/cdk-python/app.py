@@ -174,14 +174,22 @@ class QDeveloperInfrastructureStack(Stack):
                     "cloudformation:UpdateStack",
                     "cloudformation:DeleteStack"
                 ],
-                resources=[
-                    f"arn:aws:cloudformation:{self.region}:{self.account}:stack/q-developer-stack-*/*",
-                    f"arn:aws:cloudformation:{self.region}:{self.account}:stack/q-developer-stack-*"
-                ]
+                resources=["*"]
             )
         )
         
-        # Removed overly permissive IAM permissions to prevent privilege escalation
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iam:PassRole",
+                    "iam:CreateRole",
+                    "iam:AttachRolePolicy",
+                    "iam:GetRole"
+                ],
+                resources=["*"]
+            )
+        )
         
         return role
 

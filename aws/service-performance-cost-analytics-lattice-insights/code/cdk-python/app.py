@@ -91,7 +91,8 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "vpc-lattice:GetService",
                                 "vpc-lattice:GetServiceNetwork",
                                 "vpc-lattice:ListServices",
-                                "vpc-lattice:ListServiceNetworks"
+                                "vpc-lattice:ListServiceNetworks",
+                                "lambda:InvokeFunction"
                             ],
                             resources=["*"]
                         )

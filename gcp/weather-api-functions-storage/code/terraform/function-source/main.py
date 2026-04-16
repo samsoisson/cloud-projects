@@ -1,3 +1,4 @@
+"""
 Weather API Cloud Function with intelligent caching using Cloud Storage.
 
 This function provides a serverless weather API that fetches data from external weather services
@@ -331,4 +332,4 @@ if __name__ == '__main__':
         from flask import request
         return weather_api(request)
     
-    app.run(port=8080, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)

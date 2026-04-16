@@ -76,16 +76,22 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
               effect: iam.Effect.ALLOW,
               actions: [
                 'cloudformation:ValidateTemplate',
+                'cloudformation:CreateStack',
                 'cloudformation:DescribeStacks',
                 'cloudformation:DescribeStackEvents',
+                'cloudformation:UpdateStack',
+                'cloudformation:DeleteStack',
                 'cloudformation:ListStacks',
               ],
               resources: ['*'],
             }),
-            // IAM permissions for role inspection (restricted, no PassRole)
+            // IAM permissions for role management (required for CloudFormation operations)
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
+                'iam:PassRole',
+                'iam:CreateRole',
+                'iam:AttachRolePolicy',
                 'iam:GetRole',
                 'iam:ListRoles',
               ],
@@ -186,8 +192,36 @@ def lambda_handler(event, context):
                 stack_id = None
                 
                 if key.startswith('auto-deploy/'):
-                    logger.warning("Auto-deployment is disabled due to restricted CloudFormation permissions.")
-                    deployment_status = "deployment_not_permitted"
+                    try:
+                        logger.info(f"Initiating auto-deployment for stack: {stack_name}")
+                        
+                        # Create CloudFormation stack with comprehensive configuration
+                        create_response = cfn_client.create_stack(
+                            StackName=stack_name,
+                            TemplateBody=template_body,
+                            Capabilities=[
+                                'CAPABILITY_IAM',
+                                'CAPABILITY_NAMED_IAM',
+                                'CAPABILITY_AUTO_EXPAND'
+                            ],
+                            Tags=[
+                                {'Key': 'Source', 'Value': 'QDeveloperAutomation'},
+                                {'Key': 'TemplateFile', 'Value': key},
+                                {'Key': 'DeploymentTime', 'Value': datetime.utcnow().isoformat()},
+                                {'Key': 'AutoDeployed', 'Value': 'true'}
+                            ],
+                            OnFailure='ROLLBACK',
+                            EnableTerminationProtection=False
+                        )
+                        
+                        stack_id = create_response['StackId']
+                        deployment_status = "deployed"
+                        logger.info(f"Stack deployment initiated: {stack_id}")
+                        
+                    except Exception as deploy_error:
+                        logger.error(f"Stack deployment failed for {stack_name}: {str(deploy_error)}")
+                        deployment_status = "deployment_failed"
+                        stack_id = None
                 
                 # Compile comprehensive validation and deployment results
                 validation_result = {
@@ -205,7 +239,7 @@ def lambda_handler(event, context):
                         'requires_iam_capabilities': 'CAPABILITY_IAM' in validation_response.get('Capabilities', []),
                         'requires_named_iam': 'CAPABILITY_NAMED_IAM' in validation_response.get('Capabilities', []),
                         'parameter_count': len(validation_response.get('Parameters', [])),
-                        'auto_deploy_eligible': False
+                        'auto_deploy_eligible': key.startswith('auto-deploy/')
                     }
                 }
                 

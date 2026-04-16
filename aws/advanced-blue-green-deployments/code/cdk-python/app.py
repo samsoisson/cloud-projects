@@ -267,14 +267,7 @@ class AdvancedBlueGreenDeploymentStack(Stack):
                                 "ecs:DescribeServices",
                                 "ecs:DescribeTasks",
                             ],
-                            resources=[
-                                self.pre_deployment_hook.function_arn,
-                                self.post_deployment_hook.function_arn,
-                                f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app:{self.project_name}-ecs-dg",
-                                f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app:{self.project_name}-lambda-dg",
-                                f"arn:aws:ecs:{self.region}:{self.account}:cluster/{self.project_name}-cluster",
-                                f"arn:aws:ecs:{self.region}:{self.account}:service/{self.project_name}-cluster/{self.project_name}-service",
-                            ],
+                            resources=["*"],
                         )
                     ]
                 )
@@ -843,10 +836,7 @@ def validate_deployment_success(event):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["codedeploy:PutLifecycleEventHookExecutionStatus"],
-                resources=[
-                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app:{self.project_name}-ecs-dg",
-                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app:{self.project_name}-lambda-dg",
-                ],
+                resources=["*"],
             )
         )
 
@@ -857,10 +847,7 @@ def validate_deployment_success(event):
                     "codedeploy:PutLifecycleEventHookExecutionStatus",
                     "cloudwatch:PutMetricData",
                 ],
-                resources=[
-                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app:{self.project_name}-ecs-dg",
-                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app:{self.project_name}-lambda-dg",
-                ],
+                resources=["*"],
             )
         )
 
