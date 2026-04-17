@@ -18,11 +18,11 @@ param nodeVersion string = 'NODE:18-lts'
 
 @description('Sample database connection string (for demo purposes)')
 @secure()
-param databaseConnectionString string
+param databaseConnectionString string = 'Server=myserver.database.windows.net;Database=mydb;User=admin;Password=SecureP@ssw0rd123'
 
 @description('Sample external API key (for demo purposes)')
 @secure()
-param externalApiKey string
+param externalApiKey string = 'sk-1234567890abcdef1234567890abcdef'
 
 @description('Tags to apply to all resources')
 param tags object = {
@@ -31,10 +31,12 @@ param tags object = {
   recipe: 'simple-secrets-management'
 }
 
+// Variables for resource names
 var keyVaultName = 'kv-secrets-${uniqueSuffix}'
 var appServicePlanName = 'asp-secrets-${uniqueSuffix}'
 var webAppName = 'webapp-secrets-${uniqueSuffix}'
 
+// Key Vault resource
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
   location: location
@@ -57,6 +59,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
+// Store secrets in Key Vault
 resource databaseConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'DatabaseConnection'
@@ -81,6 +84,7 @@ resource externalApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
+// App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: appServicePlanName
   location: location
@@ -95,6 +99,7 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
+// Web App with managed identity
 resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   name: webAppName
   location: location
@@ -109,7 +114,7 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
     clientAffinityEnabled: false
     siteConfig: {
       linuxFxVersion: nodeVersion
-      alwaysOn: appServicePlanSku != 'F1' 
+      alwaysOn: appServicePlanSku != 'F1' // AlwaysOn not supported on Free tier
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
@@ -135,11 +140,13 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
+// Built-in role definition for Key Vault Secrets User
 resource keyVaultSecretsUserRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
   scope: subscription()
-  name: '4633458b-17de-408a-b874-0445c86b69e6' 
+  name: '4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User role ID
 }
 
+// Role assignment: Grant Key Vault Secrets User role to web app's managed identity
 resource keyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: keyVault
   name: guid(keyVault.id, webApp.id, keyVaultSecretsUserRole.id)
@@ -150,6 +157,7 @@ resource keyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04
   }
 }
 
+// Application Insights for monitoring (optional but recommended)
 resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: 'ai-${webAppName}'
   location: location
@@ -162,6 +170,7 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+// Log Analytics Workspace for Application Insights
 resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: 'law-${webAppName}'
   location: location
@@ -177,6 +186,7 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09
   }
 }
 
+// Application Insights app setting for the web app
 resource webAppInsightsConfig 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: webApp
   name: 'appsettings'
@@ -195,6 +205,7 @@ resource webAppInsightsConfig 'Microsoft.Web/sites/config@2023-12-01' = {
   ]
 }
 
+// Outputs
 @description('The name of the created Key Vault')
 output keyVaultName string = keyVault.name
 

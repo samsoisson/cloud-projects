@@ -8,13 +8,48 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as path from 'path';
 
+/**
+ * Properties for the Service Catalog Portfolio Stack
+ */
 export interface ServiceCatalogPortfolioStackProps extends cdk.StackProps {
+  /**
+   * The name of the portfolio
+   * @default 'enterprise-infrastructure'
+   */
   portfolioName?: string;
+
+  /**
+   * The display name for the S3 product
+   * @default 'managed-s3-bucket'
+   */
   s3ProductName?: string;
+
+  /**
+   * The display name for the Lambda product
+   * @default 'serverless-function'
+   */
   lambdaProductName?: string;
+
+  /**
+   * Principal ARN to grant portfolio access
+   * If not provided, no principal will be associated
+   */
   principalArn?: string;
 }
 
+/**
+ * CDK Stack for Service Catalog Portfolio with CloudFormation Templates
+ * 
+ * This stack creates a Service Catalog portfolio containing two products:
+ * 1. S3 Bucket Product - Secure S3 bucket with encryption and versioning
+ * 2. Lambda Function Product - Lambda function with IAM role and logging
+ * 
+ * The implementation includes:
+ * - CloudFormation templates stored in S3
+ * - Service Catalog portfolio and products
+ * - Launch constraints with dedicated IAM role
+ * - Portfolio access for specified principals
+ */
 export class ServiceCatalogPortfolioStack extends cdk.Stack {
   public readonly portfolio: servicecatalog.Portfolio;
   public readonly s3Product: servicecatalog.CloudFormationProduct;
@@ -29,6 +64,7 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     const s3ProductName = props?.s3ProductName || 'managed-s3-bucket';
     const lambdaProductName = props?.lambdaProductName || 'serverless-function';
 
+    // Create S3 bucket for CloudFormation templates
     this.templatesBucket = new s3.Bucket(this, 'TemplatesBucket', {
       bucketName: `service-catalog-templates-${cdk.Stack.of(this).account}-${this.region}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -38,8 +74,13 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
+    // Deploy CloudFormation templates to S3
     this.deployTemplates();
+
+    // Create IAM role for launch constraints
     this.launchRole = this.createLaunchRole();
+
+    // Create Service Catalog portfolio
     this.portfolio = new servicecatalog.Portfolio(this, 'Portfolio', {
       displayName: portfolioName,
       providerName: 'IT Infrastructure Team',
@@ -47,20 +88,33 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
       messageLanguage: servicecatalog.MessageLanguage.EN,
     });
 
+    // Create S3 bucket product
     this.s3Product = this.createS3Product(s3ProductName);
+
+    // Create Lambda function product
     this.lambdaProduct = this.createLambdaProduct(lambdaProductName);
+
+    // Associate products with portfolio
     this.portfolio.addProduct(this.s3Product);
     this.portfolio.addProduct(this.lambdaProduct);
+
+    // Add launch constraints to products
     this.addLaunchConstraints();
 
+    // Associate principal with portfolio if provided
     if (props?.principalArn) {
       this.portfolio.giveAccessToRole(iam.Role.fromRoleArn(this, 'PrincipalRole', props.principalArn));
     }
 
+    // Add stack outputs
     this.addOutputs();
   }
 
+  /**
+   * Deploy CloudFormation templates to S3 bucket
+   */
   private deployTemplates(): void {
+    // Create the templates as assets and deploy them
     new s3deploy.BucketDeployment(this, 'DeployS3Template', {
       sources: [s3deploy.Source.data('s3-bucket-template.yaml', this.getS3BucketTemplate())],
       destinationBucket: this.templatesBucket,
@@ -74,6 +128,9 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     });
   }
 
+  /**
+   * Create IAM role for launch constraints
+   */
   private createLaunchRole(): iam.Role {
     const role = new iam.Role(this, 'LaunchRole', {
       roleName: `ServiceCatalogLaunchRole-${cdk.Stack.of(this).stackName}`,
@@ -81,20 +138,25 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
       description: 'IAM role for Service Catalog launch constraints',
     });
 
+    // Add policy with required permissions for S3 and Lambda resources
     role.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
+        // S3 permissions
         's3:CreateBucket',
         's3:DeleteBucket',
         's3:PutBucketEncryption',
         's3:PutBucketVersioning',
         's3:PutBucketPublicAccessBlock',
         's3:PutBucketTagging',
+        // Lambda permissions
+        'lambda:CreateFunction',
         'lambda:DeleteFunction',
         'lambda:UpdateFunctionCode',
         'lambda:UpdateFunctionConfiguration',
         'lambda:TagResource',
         'lambda:UntagResource',
+        // IAM permissions
         'iam:CreateRole',
         'iam:DeleteRole',
         'iam:AttachRolePolicy',
@@ -109,6 +171,9 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     return role;
   }
 
+  /**
+   * Create S3 bucket Service Catalog product
+   */
   private createS3Product(productName: string): servicecatalog.CloudFormationProduct {
     return new servicecatalog.CloudFormationProduct(this, 'S3Product', {
       productName: productName,
@@ -126,6 +191,9 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     });
   }
 
+  /**
+   * Create Lambda function Service Catalog product
+   */
   private createLambdaProduct(productName: string): servicecatalog.CloudFormationProduct {
     return new servicecatalog.CloudFormationProduct(this, 'LambdaProduct', {
       productName: productName,
@@ -143,12 +211,18 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     });
   }
 
+  /**
+   * Add launch constraints to products
+   */
   private addLaunchConstraints(): void {
+    // Add launch constraint to S3 product
     this.portfolio.constrainCloudFormationParameters(this.s3Product, {
       rule: servicecatalog.TemplateRule.assertDescription('Environment parameter must be one of: development, staging, production'),
     });
 
     this.portfolio.setLaunchRole(this.s3Product, this.launchRole);
+
+    // Add launch constraint to Lambda product
     this.portfolio.constrainCloudFormationParameters(this.lambdaProduct, {
       rule: servicecatalog.TemplateRule.assertDescription('Runtime parameter must be supported'),
     });
@@ -156,6 +230,9 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     this.portfolio.setLaunchRole(this.lambdaProduct, this.launchRole);
   }
 
+  /**
+   * Add stack outputs
+   */
   private addOutputs(): void {
     new cdk.CfnOutput(this, 'PortfolioId', {
       value: this.portfolio.portfolioId,
@@ -188,6 +265,9 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
     });
   }
 
+  /**
+   * Get S3 bucket CloudFormation template content
+   */
   private getS3BucketTemplate(): string {
     return `AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Managed S3 bucket with security best practices'
@@ -236,6 +316,9 @@ Outputs:
     Value: !GetAtt S3Bucket.Arn`;
   }
 
+  /**
+   * Get Lambda function CloudFormation template content
+   */
   private getLambdaFunctionTemplate(): string {
     return `AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Managed Lambda function with IAM role and CloudWatch logging'
@@ -307,13 +390,18 @@ Outputs:
   }
 }
 
+/**
+ * CDK App entry point
+ */
 const app = new cdk.App();
 
+// Get configuration from context or environment variables
 const portfolioName = app.node.tryGetContext('portfolioName') || process.env.PORTFOLIO_NAME;
 const s3ProductName = app.node.tryGetContext('s3ProductName') || process.env.S3_PRODUCT_NAME;
 const lambdaProductName = app.node.tryGetContext('lambdaProductName') || process.env.LAMBDA_PRODUCT_NAME;
 const principalArn = app.node.tryGetContext('principalArn') || process.env.PRINCIPAL_ARN;
 
+// Create the stack
 new ServiceCatalogPortfolioStack(app, 'ServiceCatalogPortfolioStack', {
   portfolioName,
   s3ProductName,

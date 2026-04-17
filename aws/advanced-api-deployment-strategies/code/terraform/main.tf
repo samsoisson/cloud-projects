@@ -462,4 +462,203 @@ resource "aws_api_gateway_deployment" "staging_deployment" {
 resource "aws_api_gateway_integration" "green_lambda_integration" {
   rest_api_id = aws_api_gateway_rest_api.advanced_deployment_api.id
   resource_id = aws_api_gateway_resource.hello_resource.id
-  http_method = aws_api_gateway_method.hello_get
+  http_method = aws_api_gateway_method.hello_get_method.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.green_function.invoke_arn
+}
+
+# API Gateway Stage for Staging
+resource "aws_api_gateway_stage" "staging_stage" {
+  deployment_id = aws_api_gateway_deployment.staging_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.advanced_deployment_api.id
+  stage_name    = var.api_staging_stage_name
+  description   = "Staging stage for Green environment testing"
+
+  # Enable X-Ray tracing
+  xray_tracing_enabled = var.enable_xray_tracing
+
+  # Configure throttling
+  throttle_settings {
+    rate_limit  = var.api_throttle_rate_limit
+    burst_limit = var.api_throttle_burst_limit
+  }
+
+  # Method-level settings for monitoring and logging
+  method_settings {
+    method_path = "*/*"
+    
+    # Enable detailed CloudWatch metrics
+    metrics_enabled = var.enable_detailed_metrics
+    
+    # Configure logging
+    logging_level   = var.enable_api_gateway_logging ? "INFO" : "OFF"
+    data_trace_enabled = var.enable_api_gateway_logging
+    
+    # Throttling settings
+    throttling_rate_limit  = var.api_throttle_rate_limit
+    throttling_burst_limit = var.api_throttle_burst_limit
+  }
+
+  tags = local.common_tags
+  
+  depends_on = [aws_api_gateway_account.api_gateway_account]
+}
+
+# CloudWatch Log Group for API Gateway
+resource "aws_cloudwatch_log_group" "api_gateway_log_group" {
+  count             = var.enable_api_gateway_logging ? 1 : 0
+  name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.advanced_deployment_api.id}/${var.api_stage_name}"
+  retention_in_days = 14
+  
+  tags = local.common_tags
+}
+
+# CloudWatch Alarm for 4XX Errors
+resource "aws_cloudwatch_metric_alarm" "api_4xx_errors" {
+  alarm_name          = "${local.api_name}-4xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.alarm_evaluation_periods
+  metric_name         = "4XXError"
+  namespace           = "AWS/ApiGateway"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 10
+  alarm_description   = "This metric monitors 4XX errors for API Gateway"
+  alarm_actions       = []
+
+  dimensions = {
+    ApiName = aws_api_gateway_rest_api.advanced_deployment_api.name
+    Stage   = aws_api_gateway_stage.production_stage.stage_name
+  }
+
+  treat_missing_data = "notBreaching"
+  
+  tags = local.common_tags
+}
+
+# CloudWatch Alarm for 5XX Errors
+resource "aws_cloudwatch_metric_alarm" "api_5xx_errors" {
+  alarm_name          = "${local.api_name}-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "5XXError"
+  namespace           = "AWS/ApiGateway"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = var.error_rate_threshold
+  alarm_description   = "This metric monitors 5XX errors for API Gateway"
+  alarm_actions       = []
+
+  dimensions = {
+    ApiName = aws_api_gateway_rest_api.advanced_deployment_api.name
+    Stage   = aws_api_gateway_stage.production_stage.stage_name
+  }
+
+  treat_missing_data = "notBreaching"
+  
+  tags = local.common_tags
+}
+
+# CloudWatch Alarm for High Latency
+resource "aws_cloudwatch_metric_alarm" "api_high_latency" {
+  alarm_name          = "${local.api_name}-high-latency"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.alarm_evaluation_periods
+  metric_name         = "Latency"
+  namespace           = "AWS/ApiGateway"
+  period              = 300
+  statistic           = "Average"
+  threshold           = var.latency_threshold
+  alarm_description   = "This metric monitors API Gateway latency"
+  alarm_actions       = []
+
+  dimensions = {
+    ApiName = aws_api_gateway_rest_api.advanced_deployment_api.name
+    Stage   = aws_api_gateway_stage.production_stage.stage_name
+  }
+
+  treat_missing_data = "notBreaching"
+  
+  tags = local.common_tags
+}
+
+# CloudWatch Alarm for Lambda Blue Function Errors
+resource "aws_cloudwatch_metric_alarm" "blue_lambda_errors" {
+  alarm_name          = "${local.blue_function_name}-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.alarm_evaluation_periods
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = var.error_rate_threshold
+  alarm_description   = "This metric monitors Blue Lambda function errors"
+  alarm_actions       = []
+
+  dimensions = {
+    FunctionName = aws_lambda_function.blue_function.function_name
+  }
+
+  treat_missing_data = "notBreaching"
+  
+  tags = local.common_tags
+}
+
+# CloudWatch Alarm for Lambda Green Function Errors
+resource "aws_cloudwatch_metric_alarm" "green_lambda_errors" {
+  alarm_name          = "${local.green_function_name}-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.alarm_evaluation_periods
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = var.error_rate_threshold
+  alarm_description   = "This metric monitors Green Lambda function errors"
+  alarm_actions       = []
+
+  dimensions = {
+    FunctionName = aws_lambda_function.green_function.function_name
+  }
+
+  treat_missing_data = "notBreaching"
+  
+  tags = local.common_tags
+}
+
+# Custom Domain Name (if provided)
+resource "aws_api_gateway_domain_name" "custom_domain" {
+  count           = var.custom_domain_name != null ? 1 : 0
+  domain_name     = var.custom_domain_name
+  certificate_arn = var.certificate_arn
+
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
+
+  tags = local.common_tags
+}
+
+# API Gateway Base Path Mapping for Custom Domain
+resource "aws_api_gateway_base_path_mapping" "custom_domain_mapping" {
+  count       = var.custom_domain_name != null ? 1 : 0
+  api_id      = aws_api_gateway_rest_api.advanced_deployment_api.id
+  stage_name  = aws_api_gateway_stage.production_stage.stage_name
+  domain_name = aws_api_gateway_domain_name.custom_domain[0].domain_name
+}
+
+# Route 53 Record for Custom Domain (if provided)
+resource "aws_route53_record" "custom_domain_record" {
+  count   = var.custom_domain_name != null && var.route53_hosted_zone_id != null ? 1 : 0
+  zone_id = var.route53_hosted_zone_id
+  name    = var.custom_domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_api_gateway_domain_name.custom_domain[0].regional_domain_name
+    zone_id                = aws_api_gateway_domain_name.custom_domain[0].regional_zone_id
+    evaluate_target_health = false
+  }
+}
