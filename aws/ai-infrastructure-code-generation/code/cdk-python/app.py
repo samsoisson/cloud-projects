@@ -31,7 +31,7 @@ from constructs import Construct
 class QDeveloperInfrastructureStack(Stack):
     """
     Stack for Amazon Q Developer Infrastructure Code Generation system.
-    
+
     This stack creates:
     - S3 bucket for template storage with versioning and encryption
     - Lambda function for template processing and validation
@@ -45,22 +45,22 @@ class QDeveloperInfrastructureStack(Stack):
 
         # Generate unique identifier for resources
         random_suffix = self._generate_random_suffix()
-        
+
         # S3 bucket for template storage
         self.template_bucket = self._create_template_bucket(random_suffix)
-        
+
         # IAM role for Lambda function
         self.lambda_role = self._create_lambda_execution_role(random_suffix)
-        
+
         # Lambda function for template processing
         self.template_processor = self._create_template_processor_function(random_suffix)
-        
+
         # S3 event notification configuration
         self._configure_s3_event_notification()
-        
+
         # CloudWatch log group with retention policy
         self._create_log_group()
-        
+
         # Stack outputs
         self._create_outputs()
 
@@ -68,32 +68,34 @@ class QDeveloperInfrastructureStack(Stack):
         """Generate a random suffix for resource naming."""
         # Create a random password parameter for unique naming
         random_param = secretsmanager.Secret(
-            self, "RandomSuffix",
+            self,
+            "RandomSuffix",
             description="Random suffix for resource naming",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 length=6,
                 exclude_punctuation=True,
                 exclude_uppercase=True,
-                require_each_included_type=True
+                require_each_included_type=True,
             ),
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY,
         )
-        
+
         # Use the first 6 characters of the secret value
         return random_param.secret_value.unsafe_unwrap()[:6]
 
     def _create_template_bucket(self, suffix: str) -> s3.Bucket:
         """
         Create S3 bucket for storing infrastructure templates.
-        
+
         Args:
             suffix: Random suffix for unique bucket naming
-            
+
         Returns:
             S3 Bucket construct
         """
         bucket = s3.Bucket(
-            self, "QDeveloperTemplatesBucket",
+            self,
+            "QDeveloperTemplatesBucket",
             bucket_name=f"q-developer-templates-{suffix}",
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
@@ -105,37 +107,38 @@ class QDeveloperInfrastructureStack(Stack):
                     id="ValidationResultsCleanup",
                     prefix="validation-results/",
                     expiration=Duration.days(30),
-                    abort_incomplete_multipart_upload_after=Duration.days(1)
+                    abort_incomplete_multipart_upload_after=Duration.days(1),
                 ),
                 s3.LifecycleRule(
                     id="OldVersionCleanup",
-                    noncurrent_version_expiration=Duration.days(90)
-                )
-            ]
+                    noncurrent_version_expiration=Duration.days(90),
+                ),
+            ],
         )
-        
+
         # Add bucket notification placeholder (configured later)
         bucket.add_cors_rule(
             allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.PUT],
             allowed_origins=["*"],
             allowed_headers=["*"],
-            max_age=3000
+            max_age=3000,
         )
-        
+
         return bucket
 
     def _create_lambda_execution_role(self, suffix: str) -> iam.Role:
         """
         Create IAM role for Lambda function with least privilege permissions.
-        
+
         Args:
             suffix: Random suffix for unique role naming
-            
+
         Returns:
             IAM Role construct
         """
         role = iam.Role(
-            self, "QDeveloperLambdaRole",
+            self,
+            "QDeveloperLambdaRole",
             role_name=f"q-developer-automation-role-{suffix}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             description="Role for Q Developer template processing Lambda function",
@@ -143,9 +146,9 @@ class QDeveloperInfrastructureStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
                 )
-            ]
+            ],
         )
-        
+
         # Add custom inline policy for S3 and CloudFormation access
         role.add_to_policy(
             iam.PolicyStatement(
@@ -154,15 +157,18 @@ class QDeveloperInfrastructureStack(Stack):
                     "s3:GetObject",
                     "s3:GetObjectVersion",
                     "s3:PutObject",
-                    "s3:ListBucket"
+                    "s3:ListBucket",
                 ],
                 resources=[
                     self.template_bucket.bucket_arn,
-                    f"{self.template_bucket.bucket_arn}/*"
-                ]
+                    f"{self.template_bucket.bucket_arn}/*",
+                ],
             )
         )
-        
+
+        # Restrict CloudFormation permissions to a narrow set of stacks created/managed by this system.
+        # This removes the privilege escalation vector caused by overly broad resource scope.
+        stack_name_prefix = f"q-developer-stack-{suffix}-"
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -172,34 +178,26 @@ class QDeveloperInfrastructureStack(Stack):
                     "cloudformation:DescribeStacks",
                     "cloudformation:DescribeStackEvents",
                     "cloudformation:UpdateStack",
-                    "cloudformation:DeleteStack"
+                    "cloudformation:DeleteStack",
                 ],
-                resources=["*"]
+                resources=[
+                    f"arn:aws:cloudformation:{self.region}:{self.account}:stack/{stack_name_prefix}*/*"
+                ],
             )
         )
-        
-        role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "iam:PassRole",
-                    "iam:CreateRole",
-                    "iam:AttachRolePolicy",
-                    "iam:GetRole"
-                ],
-                resources=["*"]
-            )
-        )
-        
+
+        # Removed overly broad IAM privilege escalation permissions (e.g., iam:PassRole/CreateRole/AttachRolePolicy)
+        # to prevent escalation via CloudFormation/IAM role manipulation.
+
         return role
 
     def _create_template_processor_function(self, suffix: str) -> lambda_.Function:
         """
         Create Lambda function for processing infrastructure templates.
-        
+
         Args:
             suffix: Random suffix for unique function naming
-            
+
         Returns:
             Lambda Function construct
         """
@@ -245,7 +243,7 @@ def lambda_handler(event, context):
                 # Extract metadata from template
                 template_data = json.loads(template_body) if template_body.strip().startswith('{') else {}
                 stack_name = template_data.get('Metadata', {}).get('StackName', f"q-developer-stack-{key.replace('.json', '').replace('/', '-')}")
-                
+
                 # Create CloudFormation stack (optional - controlled by parameter)
                 if key.startswith('auto-deploy/'):
                     logger.info(f"Auto-deploying stack: {stack_name}")
@@ -307,9 +305,9 @@ def lambda_handler(event, context):
             'body': json.dumps(f'Error processing template: {str(e)}')
         }
 '''
-        
         function = lambda_.Function(
-            self, "TemplateProcessorFunction",
+            self,
+            "TemplateProcessorFunction",
             function_name=f"template-processor-{suffix}",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="index.lambda_handler",
@@ -320,11 +318,11 @@ def lambda_handler(event, context):
             description="Processes CloudFormation templates from Amazon Q Developer",
             environment={
                 "BUCKET_NAME": self.template_bucket.bucket_name,
-                "LOG_LEVEL": "INFO"
+                "LOG_LEVEL": "INFO",
             },
-            retry_attempts=2
+            retry_attempts=2,
         )
-        
+
         return function
 
     def _configure_s3_event_notification(self) -> None:
@@ -332,84 +330,89 @@ def lambda_handler(event, context):
         self.template_bucket.add_event_notification(
             s3.EventType.OBJECT_CREATED,
             s3n.LambdaDestination(self.template_processor),
-            s3.NotificationKeyFilter(
-                prefix="templates/",
-                suffix=".json"
-            )
+            s3.NotificationKeyFilter(prefix="templates/", suffix=".json"),
         )
 
     def _create_log_group(self) -> None:
         """Create CloudWatch log group with retention policy."""
         logs.LogGroup(
-            self, "TemplateProcessorLogGroup",
+            self,
+            "TemplateProcessorLogGroup",
             log_group_name=f"/aws/lambda/{self.template_processor.function_name}",
             retention=logs.RetentionDays.TWO_WEEKS,
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY,
         )
 
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs for important resource information."""
         CfnOutput(
-            self, "TemplateBucketName",
+            self,
+            "TemplateBucketName",
             value=self.template_bucket.bucket_name,
             description="S3 bucket name for storing infrastructure templates",
-            export_name=f"{self.stack_name}-TemplateBucket"
+            export_name=f"{self.stack_name}-TemplateBucket",
         )
-        
+
         CfnOutput(
-            self, "TemplateBucketArn",
+            self,
+            "TemplateBucketArn",
             value=self.template_bucket.bucket_arn,
-            description="S3 bucket ARN for storing infrastructure templates"
+            description="S3 bucket ARN for storing infrastructure templates",
         )
-        
+
         CfnOutput(
-            self, "LambdaFunctionName",
+            self,
+            "LambdaFunctionName",
             value=self.template_processor.function_name,
             description="Lambda function name for template processing",
-            export_name=f"{self.stack_name}-LambdaFunction"
+            export_name=f"{self.stack_name}-LambdaFunction",
         )
-        
+
         CfnOutput(
-            self, "LambdaFunctionArn",
+            self,
+            "LambdaFunctionArn",
             value=self.template_processor.function_arn,
-            description="Lambda function ARN for template processing"
+            description="Lambda function ARN for template processing",
         )
-        
+
         CfnOutput(
-            self, "IAMRoleName",
+            self,
+            "IAMRoleName",
             value=self.lambda_role.role_name,
-            description="IAM role name for Lambda execution"
+            description="IAM role name for Lambda execution",
         )
-        
+
         CfnOutput(
-            self, "IAMRoleArn",
+            self,
+            "IAMRoleArn",
             value=self.lambda_role.role_arn,
-            description="IAM role ARN for Lambda execution"
+            description="IAM role ARN for Lambda execution",
         )
 
 
 def main() -> None:
     """Main function to create and deploy the CDK application."""
     app = App()
-    
+
     # Get environment configuration
     env = Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
-        region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1")
+        region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
     )
-    
+
     # Create the stack
     QDeveloperInfrastructureStack(
-        app, "QDeveloperInfrastructureStack",
+        app,
+        "QDeveloperInfrastructureStack",
         env=env,
         description="Amazon Q Developer Infrastructure Code Generation System",
         tags={
             "Project": "Q-Developer-Automation",
             "Environment": "Development",
-            "ManagedBy": "CDK"
-        }
+            "ManagedBy": "CDK",
+        },
     )
-    
+
     app.synth()
 
 
