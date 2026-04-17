@@ -267,7 +267,12 @@ class AdvancedBlueGreenDeploymentStack(Stack):
                                 "ecs:DescribeServices",
                                 "ecs:DescribeTasks",
                             ],
-                            resources=["*"],
+                            resources=[
+                                # Restrict to specific CodeDeploy applications and ECS services
+                                f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app/*",
+                                f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app/*",
+                                f"arn:aws:ecs:{self.region}:{self.account}:service/{self.project_name}-cluster/{self.project_name}-service",
+                            ],
                         )
                     ]
                 )
@@ -836,7 +841,10 @@ def validate_deployment_success(event):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["codedeploy:PutLifecycleEventHookExecutionStatus"],
-                resources=["*"],
+                resources=[
+                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app/*",
+                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app/*",
+                ],
             )
         )
 
@@ -847,7 +855,10 @@ def validate_deployment_success(event):
                     "codedeploy:PutLifecycleEventHookExecutionStatus",
                     "cloudwatch:PutMetricData",
                 ],
-                resources=["*"],
+                resources=[
+                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-ecs-app/*",
+                    f"arn:aws:codedeploy:{self.region}:{self.account}:deploymentgroup:{self.project_name}-lambda-app/*",
+                ],
             )
         )
 

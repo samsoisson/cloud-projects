@@ -182,7 +182,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
           'codewhisperer:*',
           // IAM management for Q Developer users
           'iam:CreateRole',
-          'iam:AttachRolePolicy',
+          // Removed 'iam:AttachRolePolicy' to prevent privilege escalation
           'iam:DetachRolePolicy',
           'iam:UpdateRole',
           'iam:TagRole',

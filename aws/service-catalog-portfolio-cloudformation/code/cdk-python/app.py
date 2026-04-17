@@ -197,7 +197,15 @@ class ServiceCatalogPortfolioStack(Stack):
                         "iam:ListRolePolicies",
                         "iam:ListAttachedRolePolicies",
                     ],
-                    resources=["*"],
+                    resources=[
+                        # Restrict S3 permissions to buckets with prefix 'sc-managed-'
+                        "arn:aws:s3:::sc-managed-*",
+                        "arn:aws:s3:::sc-managed-*/*",
+                        # Restrict Lambda permissions to functions with prefix 'sc-managed-'
+                        "arn:aws:lambda:*:*:function:sc-managed-*",
+                        # Restrict IAM permissions to roles with prefix 'sc-managed-'
+                        "arn:aws:iam::*:role/sc-managed-*",
+                    ],
                 )
             ]
         )

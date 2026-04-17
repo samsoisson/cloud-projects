@@ -76,7 +76,6 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
               effect: iam.Effect.ALLOW,
               actions: [
                 'cloudformation:ValidateTemplate',
-                'cloudformation:CreateStack',
                 'cloudformation:DescribeStacks',
                 'cloudformation:DescribeStackEvents',
                 'cloudformation:UpdateStack',
@@ -95,7 +94,10 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
                 'iam:GetRole',
                 'iam:ListRoles',
               ],
-              resources: ['*'],
+              // Restrict iam:PassRole to roles with specific prefix to reduce privilege escalation risk
+              resources: [
+                `arn:aws:iam::${this.account}:role/q-developer-*`
+              ],
             }),
             // CloudWatch Logs permissions for enhanced logging
             new iam.PolicyStatement({
