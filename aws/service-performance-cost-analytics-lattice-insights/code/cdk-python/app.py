@@ -74,7 +74,9 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                             actions=[
                                 "ce:GetCostAndUsage",
                                 "ce:GetDimensionValues",
+                                "ce:GetMetricsAndUsage",
                                 "ce:ListCostCategoryDefinitions",
+                                "ce:GetUsageReport",
                                 "ce:GetAnomalyDetectors",
                                 "ce:GetAnomalySubscriptions"
                             ],

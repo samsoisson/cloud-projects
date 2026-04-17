@@ -638,8 +638,6 @@ resource "aws_api_gateway_domain_name" "custom_domain" {
     types = ["REGIONAL"]
   }
 
-  security_policy = "TLS_1_2"  # Added to disable older TLS versions
-
   tags = local.common_tags
 }
 

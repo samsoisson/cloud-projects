@@ -137,7 +137,6 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
       defaultAction: 'Allow'
     }
     supportsHttpsTrafficOnly: true
-    minimumTlsVersion: 'TLS1_2'
   }
 }
 

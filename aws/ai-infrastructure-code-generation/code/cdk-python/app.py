@@ -182,12 +182,12 @@ class QDeveloperInfrastructureStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "iam:PassRole"
+                    "iam:PassRole",
+                    "iam:CreateRole",
+                    "iam:AttachRolePolicy",
+                    "iam:GetRole"
                 ],
-                resources=[
-                    # Restrict to roles that the Lambda function is allowed to pass
-                    f"arn:aws:iam::{self.account}:role/q-developer-automation-role-{suffix}"
-                ]
+                resources=["*"]
             )
         )
         

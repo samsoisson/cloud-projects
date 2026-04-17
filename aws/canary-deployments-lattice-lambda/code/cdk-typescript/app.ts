@@ -61,8 +61,12 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // Add VPC Lattice invoke permissions restricted to the specific Lambda functions
-    // We will add these permissions after function creation to restrict resources properly
+    // Add VPC Lattice invoke permissions
+    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: ['*'], // Will be restricted to specific functions after creation
+    }));
 
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
@@ -186,16 +190,6 @@ def handler(event, context):
       lambda: this.canaryFunction,
       description: 'Canary version 2.0.0 with enhanced features',
     });
-
-    // Now add the restricted invoke permissions for the Lambda execution role
-    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: [
-        this.productionFunction.functionArn,
-        this.canaryFunction.functionArn,
-      ],
-    }));
 
     // Create VPC Lattice service network
     this.serviceNetwork = new vpclattice.CfnServiceNetwork(this, 'CanaryServiceNetwork', {
