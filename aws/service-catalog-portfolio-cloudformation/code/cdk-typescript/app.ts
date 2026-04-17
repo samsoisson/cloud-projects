@@ -150,6 +150,8 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
         's3:PutBucketPublicAccessBlock',
         's3:PutBucketTagging',
         // Lambda permissions
+        'lambda:CreateFunction',
+        'lambda:DeleteFunction',
         'lambda:UpdateFunctionCode',
         'lambda:UpdateFunctionConfiguration',
         'lambda:TagResource',

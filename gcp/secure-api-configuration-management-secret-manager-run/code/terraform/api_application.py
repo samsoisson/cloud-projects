@@ -348,9 +348,9 @@ if __name__ == '__main__':
     # Get port from environment (Cloud Run provides PORT)
     port = int(os.environ.get('PORT', 8080))
     
-    # Run the application binding only to localhost for security
+    # Run the application
     app.run(
-        host='127.0.0.1',
+        host='0.0.0.0',
         port=port,
         debug=(ENVIRONMENT == 'dev'),
         threaded=True

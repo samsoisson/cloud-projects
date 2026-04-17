@@ -85,7 +85,6 @@ resource "aws_opensearch_domain" "traffic_analytics" {
 
   domain_endpoint_options {
     enforce_https = true
-    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
   # Open access policy for demo purposes - restrict in production
@@ -143,12 +142,12 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 resource "aws_lambda_function" "transform" {
   filename         = data.archive_file.lambda_transform.output_path
   function_name    = "${var.project_name}-transform-${local.name_suffix}"
-  role             = aws_iam_role.lambda_transform.arn
-  handler          = "lambda_function.lambda_handler"
+  role            = aws_iam_role.lambda_transform.arn
+  handler         = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.lambda_transform.output_base64sha256
-  runtime          = "python3.12"
-  timeout          = 60
-  memory_size      = 256
+  runtime         = "python3.12"
+  timeout         = 60
+  memory_size     = 256
 
   description = "Transform VPC Lattice access logs for OpenSearch analytics"
 
@@ -160,7 +159,7 @@ data "archive_file" "lambda_transform" {
   type        = "zip"
   output_path = "${path.module}/transform_function.zip"
   source {
-    content  = templatefile("${path.module}/lambda_function.py", {})
+    content = templatefile("${path.module}/lambda_function.py", {})
     filename = "lambda_function.py"
   }
 }

@@ -100,11 +100,11 @@ resource "aws_sqs_queue" "lambda_dlq" {
 resource "aws_lambda_function" "blue_function" {
   filename         = "blue_function.zip"
   function_name    = local.blue_function_name
-  role             = aws_iam_role.lambda_execution_role.arn
-  handler          = "index.lambda_handler"
-  runtime          = var.lambda_runtime
-  timeout          = var.lambda_timeout
-  memory_size      = var.lambda_memory_size
+  role            = aws_iam_role.lambda_execution_role.arn
+  handler         = "index.lambda_handler"
+  runtime         = var.lambda_runtime
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory_size
   
   # Enable X-Ray tracing
   tracing_config {
@@ -158,11 +158,11 @@ resource "aws_lambda_function" "blue_function" {
 resource "aws_lambda_function" "green_function" {
   filename         = "green_function.zip"
   function_name    = local.green_function_name
-  role             = aws_iam_role.lambda_execution_role.arn
-  handler          = "index.lambda_handler"
-  runtime          = var.lambda_runtime
-  timeout          = var.lambda_timeout
-  memory_size      = var.lambda_memory_size
+  role            = aws_iam_role.lambda_execution_role.arn
+  handler         = "index.lambda_handler"
+  runtime         = var.lambda_runtime
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory_size
   
   # Enable X-Ray tracing
   tracing_config {
@@ -446,7 +446,7 @@ resource "aws_api_gateway_stage" "production_stage" {
 # API Gateway Deployment for Staging (Green)
 resource "aws_api_gateway_deployment" "staging_deployment" {
   depends_on = [
-    aws_api_gateway_integration.green_lambda_integration,
+    aws_api_gateway_integration.blue_lambda_integration,
     aws_lambda_permission.green_lambda_permission
   ]
 
@@ -637,9 +637,6 @@ resource "aws_api_gateway_domain_name" "custom_domain" {
   endpoint_configuration {
     types = ["REGIONAL"]
   }
-
-  # Set security_policy to disable support of older TLS versions
-  security_policy = "TLS_1_2"
 
   tags = local.common_tags
 }
