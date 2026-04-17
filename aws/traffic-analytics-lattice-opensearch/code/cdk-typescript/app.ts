@@ -321,6 +321,7 @@ def categorize_response_time(response_time_ms):
     const serviceNetwork = new vpclattice.CfnServiceNetwork(this, 'ServiceNetwork', {
       name: props?.serviceNetworkName || `demo-network-${uniqueSuffix}`,
       authType: 'AWS_IAM',
+      tlsSecurityPolicy: 'TLS_1_2', // Added to enforce TLS 1.2 or above
     });
 
     // Store service network ARN for outputs

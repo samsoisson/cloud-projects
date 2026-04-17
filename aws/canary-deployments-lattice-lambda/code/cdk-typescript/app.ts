@@ -65,7 +65,7 @@ export class CanaryDeploymentStack extends cdk.Stack {
     lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['lambda:InvokeFunction'],
-      resources: ['*'], // Will be restricted to specific functions after creation
+      resources: [], // Removed to prevent privilege escalation
     }));
 
     // Create production Lambda function (version 1)

@@ -46,7 +46,7 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // IAM Role for Lambda function with comprehensive permissions
+    // IAM Role for Lambda function with permissions
     const lambdaRole = new iam.Role(this, 'TemplateProcessorRole', {
       roleName: `q-developer-automation-role-${randomSuffix}`,
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
@@ -83,19 +83,20 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
                 'cloudformation:DeleteStack',
                 'cloudformation:ListStacks',
               ],
-              resources: ['*'],
+              resources: ['arn:aws:cloudformation:*:*:stack/*'],
             }),
-            // IAM permissions for role management (required for CloudFormation operations)
+            // IAM permissions for role management (restricted to specific resources to prevent privilege escalation)
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
                 'iam:PassRole',
-                'iam:CreateRole',
-                'iam:AttachRolePolicy',
-                'iam:GetRole',
-                'iam:ListRoles',
               ],
-              resources: ['*'],
+              resources: [
+                // Restrict to specific roles if applicable, or remove if not needed
+                // For safety, restrict to only roles created by this stack or omit entirely
+                // Example: only allow passing roles with specific tags or ARNs
+                // 'arn:aws:iam::123456789012:role/SpecificRoleName'
+              ],
             }),
             // CloudWatch Logs permissions for enhanced logging
             new iam.PolicyStatement({

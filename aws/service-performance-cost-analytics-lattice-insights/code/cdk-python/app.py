@@ -57,7 +57,7 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # Create IAM role for Lambda functions with comprehensive permissions
+        # Create IAM role for Lambda functions with restricted permissions
         lambda_role = iam.Role(
             self,
             "LambdaAnalyticsRole",
