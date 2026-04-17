@@ -94,7 +94,9 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "vpc-lattice:ListServiceNetworks",
                                 "lambda:InvokeFunction"
                             ],
-                            resources=["*"]
+                            resources=["arn:aws:lambda:*:*:function:performance-analyzer-*",
+                                       "arn:aws:lambda:*:*:function:cost-correlator-*",
+                                       "arn:aws:lambda:*:*:function:report-generator-*"]
                         )
                     ]
                 )
@@ -385,53 +387,53 @@ def lambda_handler(event, context):
         
         # Invoke performance analyzer
         perf_response = lambda_client.invoke(
-            FunctionName=f"performance-analyzer-{{suffix}}",
+            FunctionName=f"performance-analyzer-{suffix}",
             InvocationType='RequestResponse',
-            Payload=json.dumps({{
+            Payload=json.dumps({
                 'log_group': log_group
-            }})
+            })
         )
         
         perf_data = json.loads(perf_response['Payload'].read())
         
         # Check for errors in performance analysis
         if perf_data.get('statusCode') != 200:
-            raise Exception(f"Performance analysis failed: {{perf_data.get('body', 'Unknown error')}}")
+            raise Exception(f"Performance analysis failed: {perf_data.get('body', 'Unknown error')}")
         
-        perf_body = json.loads(perf_data.get('body', '{{}}'))
+        perf_body = json.loads(perf_data.get('body', '{}'))
         
         # Invoke cost correlator with performance data
         cost_response = lambda_client.invoke(
-            FunctionName=f"cost-correlator-{{suffix}}",
+            FunctionName=f"cost-correlator-{suffix}",
             InvocationType='RequestResponse',
-            Payload=json.dumps({{
+            Payload=json.dumps({
                 'performance_data': perf_body.get('performance_data', [])
-            }})
+            })
         )
         
         cost_data = json.loads(cost_response['Payload'].read())
         
         # Check for errors in cost analysis
         if cost_data.get('statusCode') != 200:
-            raise Exception(f"Cost analysis failed: {{cost_data.get('body', 'Unknown error')}}")
+            raise Exception(f"Cost analysis failed: {cost_data.get('body', 'Unknown error')}")
         
-        cost_body = json.loads(cost_data.get('body', '{{}}'))
+        cost_body = json.loads(cost_data.get('body', '{}'))
         
         # Generate comprehensive report
         optimization_candidates = cost_body.get('optimization_candidates', [])
         
-        report = {{
+        report = {
             'timestamp': datetime.now().isoformat(),
-            'summary': {{
+            'summary': {
                 'services_analyzed': perf_body.get('services_analyzed', 0),
                 'optimization_opportunities': len(optimization_candidates),
                 'total_cost_analyzed': cost_body.get('total_cost_analyzed', 0),
                 'analysis_period': '24 hours (performance) / 7 days (cost)'
-            }},
+            },
             'performance_insights': perf_body.get('performance_data', []),
             'cost_correlations': cost_body.get('service_correlations', []),
             'optimization_recommendations': optimization_candidates
-        }}
+        }
         
         # Generate actionable recommendations
         recommendations = []
@@ -441,207 +443,27 @@ def lambda_handler(event, context):
             cost_per_request = candidate.get('cost_per_request', 0)
             
             if avg_response_time > 500:  # High response time threshold
-                recommendations.append(f"Service {{service_name}}: Consider optimizing for performance (avg response time: {{avg_response_time:.2f}}ms)")
+                recommendations.append(f"Service {service_name}: Consider optimizing for performance (avg response time: {avg_response_time:.2f}ms)")
             
             if cost_per_request > 0.01:  # High cost per request threshold
-                recommendations.append(f"Service {{service_name}}: Review resource allocation (cost per request: ${{cost_per_request:.4f}})")
+                recommendations.append(f"Service {service_name}: Review resource allocation (cost per request: ${cost_per_request:.4f})")
             
             if candidate.get('efficiency_score', 0) < 10:  # Very low efficiency
-                recommendations.append(f"Service {{service_name}}: Critical efficiency review needed (efficiency score: {{candidate.get('efficiency_score', 0):.2f}})")
+                recommendations.append(f"Service {service_name}: Critical efficiency review needed (efficiency score: {candidate.get('efficiency_score', 0):.2f})")
         
         if not recommendations:
             recommendations.append("No critical optimization opportunities identified. Continue monitoring for trends.")
         
         report['actionable_recommendations'] = recommendations
         
-        return {{
+        return {
             'statusCode': 200,
             'body': json.dumps(report, default=str, indent=2)
-        }}
+        }
         
     except Exception as e:
-        print(f"Error in report generation: {{str(e)}}")
-        return {{
+        print(f"Error in report generation: {str(e)}")
+        return {
             'statusCode': 500,
-            'body': json.dumps({{
-                'error': str(e),
-                'message': 'Report generation failed',
-                'timestamp': datetime.now().isoformat()
-            }})
-        }}
-            """),
-            role=lambda_role,
-            timeout=Duration.seconds(180),
-            memory_size=256,
-            description="Orchestrates performance and cost analysis reporting"
-        )
-
-        # Create EventBridge rule for scheduled analytics
-        analytics_rule = events.Rule(
-            self,
-            "AnalyticsScheduler",
-            rule_name=f"analytics-scheduler-{unique_suffix}",
-            schedule=events.Schedule.rate(Duration.hours(6)),
-            description="Trigger VPC Lattice performance cost analytics every 6 hours",
-            enabled=True
-        )
-
-        # Add Lambda target to EventBridge rule
-        analytics_rule.add_target(
-            targets.LambdaFunction(
-                report_generator,
-                event=events.RuleTargetInput.from_object({
-                    "suffix": unique_suffix,
-                    "log_group": log_group_name
-                })
-            )
-        )
-
-        # Create sample VPC Lattice service for testing
-        sample_service = vpclattice.CfnService(
-            self,
-            "SampleAnalyticsService",
-            name=f"sample-analytics-service-{unique_suffix}",
-            tags=[
-                cdk.CfnTag(key="Purpose", value="AnalyticsDemo"),
-                cdk.CfnTag(key="CostCenter", value="Analytics")
-            ]
-        )
-
-        # Associate sample service with service network
-        service_association = vpclattice.CfnServiceNetworkServiceAssociation(
-            self,
-            "SampleServiceAssociation",
-            service_network_identifier=service_network.attr_id,
-            service_identifier=sample_service.attr_id,
-            tags=[
-                cdk.CfnTag(key="Purpose", value="AnalyticsDemo")
-            ]
-        )
-
-        # Create CloudWatch Dashboard for performance cost analytics
-        dashboard = cloudwatch.Dashboard(
-            self,
-            "PerformanceCostAnalyticsDashboard",
-            dashboard_name=f"VPC-Lattice-Performance-Cost-Analytics-{unique_suffix}",
-            widgets=[
-                [
-                    cloudwatch.GraphWidget(
-                        title="VPC Lattice Performance Metrics",
-                        left=[
-                            cloudwatch.Metric(
-                                namespace="AWS/VPCLattice",
-                                metric_name="NewConnectionCount",
-                                dimensions_map={
-                                    "ServiceNetwork": service_network_name
-                                },
-                                statistic="Average"
-                            ),
-                            cloudwatch.Metric(
-                                namespace="AWS/VPCLattice",
-                                metric_name="ActiveConnectionCount",
-                                dimensions_map={
-                                    "ServiceNetwork": service_network_name
-                                },
-                                statistic="Average"
-                            )
-                        ],
-                        right=[
-                            cloudwatch.Metric(
-                                namespace="VPCLattice/Performance",
-                                metric_name="AverageResponseTime",
-                                dimensions_map={
-                                    "ServiceName": f"sample-analytics-service-{unique_suffix}"
-                                },
-                                statistic="Average"
-                            )
-                        ],
-                        width=12,
-                        height=6,
-                        period=Duration.minutes(5)
-                    )
-                ],
-                [
-                    cloudwatch.LogQueryWidget(
-                        title="Service Response Time Analysis",
-                        log_groups=[log_group],
-                        query_lines=[
-                            "fields @timestamp, targetService, responseTime, requestSize",
-                            "| filter @message like /requestId/",
-                            "| stats avg(responseTime) as avgResponseTime by targetService",
-                            "| sort avgResponseTime desc"
-                        ],
-                        width=24,
-                        height=6
-                    )
-                ]
-            ]
-        )
-
-        # Stack Outputs
-        cdk.CfnOutput(
-            self,
-            "ServiceNetworkId",
-            value=service_network.attr_id,
-            description="VPC Lattice Service Network ID"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "ServiceNetworkArn",
-            value=service_network.attr_arn,
-            description="VPC Lattice Service Network ARN"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "PerformanceAnalyzerFunction",
-            value=performance_analyzer.function_name,
-            description="Performance Analyzer Lambda Function Name"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "CostCorrelatorFunction",
-            value=cost_correlator.function_name,
-            description="Cost Correlator Lambda Function Name"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "ReportGeneratorFunction",
-            value=report_generator.function_name,
-            description="Report Generator Lambda Function Name"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "CloudWatchDashboard",
-            value=f"https://console.aws.amazon.com/cloudwatch/home?region={self.region}#dashboards:name={dashboard.dashboard_name}",
-            description="CloudWatch Dashboard URL"
-        )
-
-        cdk.CfnOutput(
-            self,
-            "LogGroupName",
-            value=log_group.log_group_name,
-            description="CloudWatch Log Group for VPC Lattice logs"
-        )
-
-
-app = cdk.App()
-
-# Get unique suffix from context or use default
-unique_suffix = app.node.try_get_context("unique_suffix") or "demo"
-
-ServicePerformanceCostAnalyticsStack(
-    app, 
-    "ServicePerformanceCostAnalyticsStack",
-    description="Service Performance Cost Analytics with VPC Lattice and CloudWatch Insights",
-    env=cdk.Environment(
-        account=os.environ.get('CDK_DEFAULT_ACCOUNT'),
-        region=os.environ.get('CDK_DEFAULT_REGION', 'us-east-1')
-    )
-)
-
-app.synth()
+            'body': json.dumps({
+                'error

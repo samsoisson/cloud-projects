@@ -137,6 +137,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
       defaultAction: 'Allow'
     }
     supportsHttpsTrafficOnly: true
+    minimumTlsVersion: 'TLS1_2'
   }
 }
 
@@ -187,6 +188,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       defaultAction: 'Allow'
       bypass: 'AzureServices'
     }
+    minimumTlsVersion: 'TLS1_2'
   }
 }
 
@@ -225,6 +227,7 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' =
     adminUserEnabled: true
     publicNetworkAccess: 'Enabled'
     networkRuleBypassOptions: 'AzureServices'
+    minimumTlsVersion: 'TLS1_2'
   }
 }
 

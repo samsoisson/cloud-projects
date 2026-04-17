@@ -61,13 +61,6 @@ export class CanaryDeploymentStack extends cdk.Stack {
       ],
     });
 
-    // Add VPC Lattice invoke permissions
-    lambdaExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: ['*'], // Will be restricted to specific functions after creation
-    }));
-
     // Create production Lambda function (version 1)
     this.productionFunction = new lambda.Function(this, 'ProductionFunction', {
       runtime: lambda.Runtime.PYTHON_3_11,
@@ -278,12 +271,14 @@ def handler(event, context):
       principal: new iam.ServicePrincipal('vpc-lattice.amazonaws.com'),
       action: 'lambda:InvokeFunction',
       sourceAccount: this.account,
+      sourceArn: this.productionFunction.functionArn,
     });
 
     this.canaryFunction.addPermission('AllowVPCLatticeInvoke', {
       principal: new iam.ServicePrincipal('vpc-lattice.amazonaws.com'),
       action: 'lambda:InvokeFunction',
       sourceAccount: this.account,
+      sourceArn: this.canaryFunction.functionArn,
     });
 
     // Create CloudWatch alarms for canary monitoring
@@ -482,69 +477,4 @@ def handler(event, context):
     new cdk.CfnOutput(this, 'ServiceId', {
       value: this.latticeService.attrId,
       description: 'VPC Lattice Service ID',
-      exportName: `${this.stackName}-ServiceId`,
-    });
-
-    new cdk.CfnOutput(this, 'ServiceDomainName', {
-      value: this.latticeService.attrDnsEntry?.domainName || 'Not available',
-      description: 'VPC Lattice Service DNS Domain Name',
-      exportName: `${this.stackName}-ServiceDomainName`,
-    });
-
-    new cdk.CfnOutput(this, 'ProductionFunctionArn', {
-      value: this.productionFunction.functionArn,
-      description: 'Production Lambda Function ARN',
-      exportName: `${this.stackName}-ProductionFunctionArn`,
-    });
-
-    new cdk.CfnOutput(this, 'CanaryFunctionArn', {
-      value: this.canaryFunction.functionArn,
-      description: 'Canary Lambda Function ARN',
-      exportName: `${this.stackName}-CanaryFunctionArn`,
-    });
-
-    new cdk.CfnOutput(this, 'TrafficWeights', {
-      value: `Production: ${productionWeight}%, Canary: ${canaryWeight}%`,
-      description: 'Current traffic distribution weights',
-    });
-
-    new cdk.CfnOutput(this, 'RollbackTopicArn', {
-      value: this.rollbackTopic.topicArn,
-      description: 'SNS Topic ARN for rollback notifications',
-      exportName: `${this.stackName}-RollbackTopicArn`,
-    });
-
-    // Add tags for cost allocation and resource management
-    cdk.Tags.of(this).add('Project', 'CanaryDeployment');
-    cdk.Tags.of(this).add('Environment', 'Demo');
-    cdk.Tags.of(this).add('CostCenter', 'Engineering');
-    cdk.Tags.of(this).add('DeploymentPattern', 'Progressive');
-  }
-}
-
-// CDK App instantiation
-const app = new cdk.App();
-
-// Apply CDK Nag for security best practices
-cdk.Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
-
-// Create the canary deployment stack
-const stack = new CanaryDeploymentStack(app, 'CanaryDeploymentStack', {
-  description: 'Progressive canary deployments using VPC Lattice and Lambda (uksb-1tupboc57)',
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION,
-  },
-  canaryWeight: 10,      // 10% traffic to canary
-  productionWeight: 90,  // 90% traffic to production
-  enableAutoRollback: true,
-  
-  // Enable termination protection for production deployments
-  terminationProtection: false, // Set to true for production
-});
-
-// Add additional stack-level tags
-cdk.Tags.of(stack).add('StackName', stack.stackName);
-cdk.Tags.of(stack).add('CreatedBy', 'AWS-CDK');
-
-app.synth();
+      exportName:

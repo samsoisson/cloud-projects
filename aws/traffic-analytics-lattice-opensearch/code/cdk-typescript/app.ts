@@ -78,6 +78,7 @@ export class TrafficAnalyticsStack extends cdk.Stack {
         enabled: true,
       },
       enforceHttps: true,
+      tlsSecurityPolicy: opensearch.TLSSecurityPolicy.TLS_1_2,
       logging: {
         slowSearchLogEnabled: true,
         appLogEnabled: true,
@@ -119,26 +120,26 @@ def lambda_handler(event, context):
     
     for record in event['records']:
         try:
-            # Decode and decompress the data
+            // Decode and decompress the data
             compressed_payload = base64.b64decode(record['data'])
             uncompressed_payload = gzip.decompress(compressed_payload)
             log_data = json.loads(uncompressed_payload)
             
-            # Transform and enrich each log entry
+            // Transform and enrich each log entry
             for log_entry in log_data.get('logEvents', []):
                 try:
-                    # Parse the log message if it's JSON
+                    // Parse the log message if it's JSON
                     if log_entry['message'].startswith('{'):
                         parsed_log = json.loads(log_entry['message'])
                         
-                        # Add timestamp and enrichment fields
+                        // Add timestamp and enrichment fields
                         parsed_log['@timestamp'] = datetime.datetime.fromtimestamp(
                             log_entry['timestamp'] / 1000
                         ).isoformat()
                         parsed_log['log_group'] = log_data.get('logGroup', '')
                         parsed_log['log_stream'] = log_data.get('logStream', '')
                         
-                        # Add derived fields for analytics
+                        // Add derived fields for analytics
                         if 'responseCode' in parsed_log:
                             parsed_log['response_class'] = str(parsed_log['responseCode'])[0] + 'xx'
                             parsed_log['is_error'] = parsed_log['responseCode'] >= 400
@@ -156,7 +157,7 @@ def lambda_handler(event, context):
                             ).decode('utf-8')
                         }
                     else:
-                        # If not JSON, pass through with minimal processing
+                        // If not JSON, pass through with minimal processing
                         enhanced_log = {
                             'message': log_entry['message'],
                             '@timestamp': datetime.datetime.fromtimestamp(
@@ -177,14 +178,14 @@ def lambda_handler(event, context):
                     output.append(output_record)
                     
                 except Exception as e:
-                    # If processing fails, mark as processing failure
+                    // If processing fails, mark as processing failure
                     output.append({
                         'recordId': record['recordId'],
                         'result': 'ProcessingFailed'
                     })
         
         except Exception as e:
-            # If record processing fails entirely
+            // If record processing fails entirely
             output.append({
                 'recordId': record['recordId'],
                 'result': 'ProcessingFailed'

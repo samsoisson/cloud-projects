@@ -6,41 +6,13 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as logs from 'aws-cdk-lib/aws-logs';
 
-/**
- * Props for the Amazon Q Developer infrastructure stack
- */
 export interface AmazonQDeveloperStackProps extends cdk.StackProps {
-  /**
-   * The environment name (dev, staging, prod)
-   * @default 'dev'
-   */
   readonly environmentName?: string;
-
-  /**
-   * Whether to enable detailed CloudWatch logging
-   * @default true
-   */
   readonly enableDetailedLogging?: boolean;
-
-  /**
-   * The organization name for resource tagging
-   */
   readonly organizationName?: string;
-
-  /**
-   * Whether to create IAM roles for enterprise usage
-   * @default false
-   */
   readonly enableEnterpriseFeatures?: boolean;
 }
 
-/**
- * CDK Stack for Amazon Q Developer infrastructure
- * 
- * This stack creates the necessary AWS infrastructure to support Amazon Q Developer
- * usage in an enterprise environment, including IAM roles, S3 buckets for artifacts,
- * and CloudWatch logging for monitoring and compliance.
- */
 export class AmazonQDeveloperStack extends cdk.Stack {
   public readonly developerRole: iam.Role;
   public readonly artifactsBucket: s3.Bucket;
@@ -56,17 +28,14 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       enableEnterpriseFeatures = false
     } = props;
 
-    // Resource naming prefix for consistent naming
     const resourcePrefix = `amazon-q-${environmentName}`;
 
-    // Create CloudWatch Log Group for Amazon Q Developer activities
     this.logGroup = new logs.LogGroup(this, 'AmazonQLogGroup', {
       logGroupName: `/aws/amazon-q-developer/${environmentName}`,
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // Create S3 bucket for storing development artifacts and code samples
     this.artifactsBucket = new s3.Bucket(this, 'AmazonQArtifactsBucket', {
       bucketName: `${resourcePrefix}-artifacts-${cdk.Aws.ACCOUNT_ID}-${cdk.Aws.REGION}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -93,7 +62,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    // Create IAM role for developers using Amazon Q Developer
     this.developerRole = new iam.Role(this, 'AmazonQDeveloperRole', {
       roleName: `${resourcePrefix}-developer-role`,
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
@@ -101,25 +69,20 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       maxSessionDuration: cdk.Duration.hours(12),
     });
 
-    // Basic policies for Amazon Q Developer functionality
     const amazonQBasicPolicy = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        // Amazon Q Developer service permissions
         'q:*',
         'codewhisperer:*',
-        // CloudWatch Logs permissions for monitoring
         'logs:CreateLogGroup',
         'logs:CreateLogStream',
         'logs:PutLogEvents',
         'logs:DescribeLogGroups',
         'logs:DescribeLogStreams',
-        // Basic AWS service information access
         'sts:GetCallerIdentity',
         'iam:GetUser',
         'iam:ListAttachedRolePolicies',
         'iam:ListRolePolicies',
-        // S3 permissions for artifacts
         's3:GetObject',
         's3:PutObject',
         's3:DeleteObject',
@@ -130,18 +93,16 @@ export class AmazonQDeveloperStack extends cdk.Stack {
         `${this.logGroup.logGroupArn}:*`,
         this.artifactsBucket.bucketArn,
         `${this.artifactsBucket.bucketArn}/*`,
-        '*', // For Q Developer and CodeWhisperer services
+        '*',
       ],
     });
 
     this.developerRole.addToPolicy(amazonQBasicPolicy);
 
-    // Enterprise features for organizations using IAM Identity Center
     if (enableEnterpriseFeatures) {
       const enterprisePolicy = new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: [
-          // IAM Identity Center permissions for enterprise authentication
           'sso:ListInstances',
           'sso:DescribeInstance',
           'sso:ListAccounts',
@@ -150,11 +111,9 @@ export class AmazonQDeveloperStack extends cdk.Stack {
           'identitystore:DescribeGroup',
           'identitystore:ListUsers',
           'identitystore:ListGroups',
-          // Enhanced security and compliance monitoring
           'cloudtrail:LookupEvents',
           'config:GetComplianceDetailsByResource',
           'config:GetResourceConfigHistory',
-          // Cost monitoring for Amazon Q usage
           'ce:GetCostAndUsage',
           'ce:GetUsageReport',
           'budgets:ViewBudget',
@@ -164,7 +123,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
 
       this.developerRole.addToPolicy(enterprisePolicy);
 
-      // Create additional IAM role for Amazon Q administrators
       const adminRole = new iam.Role(this, 'AmazonQAdminRole', {
         roleName: `${resourcePrefix}-admin-role`,
         assumedBy: new iam.CompositePrincipal(
@@ -177,21 +135,15 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       const adminPolicy = new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: [
-          // Full Amazon Q administrative permissions
           'q:*',
           'codewhisperer:*',
-          // IAM management for Q Developer users
           'iam:CreateRole',
-          'iam:AttachRolePolicy',
-          'iam:DetachRolePolicy',
           'iam:UpdateRole',
           'iam:TagRole',
           'iam:UntagRole',
-          // Organization management
           'organizations:ListAccounts',
           'organizations:DescribeAccount',
           'organizations:DescribeOrganization',
-          // SSO administration
           'sso-admin:*',
         ],
         resources: ['*'],
@@ -199,7 +151,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
 
       adminRole.addToPolicy(adminPolicy);
 
-      // Output the admin role ARN
       new cdk.CfnOutput(this, 'AmazonQAdminRoleArn', {
         value: adminRole.roleArn,
         description: 'ARN of the Amazon Q Developer admin role for enterprise management',
@@ -207,7 +158,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       });
     }
 
-    // Apply consistent tags to all resources
     const commonTags = {
       Environment: environmentName,
       Application: 'Amazon Q Developer',
@@ -220,7 +170,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       cdk.Tags.of(this).add(key, value);
     });
 
-    // CloudFormation outputs for important resource references
     new cdk.CfnOutput(this, 'DeveloperRoleArn', {
       value: this.developerRole.roleArn,
       description: 'ARN of the IAM role for Amazon Q Developer users',
@@ -245,7 +194,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       exportName: `${resourcePrefix}-log-group-arn`,
     });
 
-    // Output setup instructions
     new cdk.CfnOutput(this, 'SetupInstructions', {
       value: [
         '1. Install Amazon Q extension in VS Code',
@@ -256,7 +204,6 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       description: 'Quick setup instructions for Amazon Q Developer',
     });
 
-    // Security and compliance outputs
     if (enableDetailedLogging) {
       new cdk.CfnOutput(this, 'ComplianceNote', {
         value: 'CloudWatch logging enabled for compliance and monitoring. Review logs regularly for security and usage patterns.',
@@ -265,37 +212,21 @@ export class AmazonQDeveloperStack extends cdk.Stack {
     }
   }
 
-  /**
-   * Add custom IAM policies to the developer role
-   * @param policyStatement - The IAM policy statement to add
-   */
   public addDeveloperPolicy(policyStatement: iam.PolicyStatement): void {
     this.developerRole.addToPolicy(policyStatement);
   }
 
-  /**
-   * Get the S3 bucket for storing code artifacts
-   * @returns The S3 bucket construct
-   */
   public getArtifactsBucket(): s3.Bucket {
     return this.artifactsBucket;
   }
 
-  /**
-   * Get the CloudWatch Log Group for monitoring
-   * @returns The CloudWatch Log Group construct
-   */
   public getLogGroup(): logs.LogGroup {
     return this.logGroup;
   }
 }
 
-/**
- * Main CDK application
- */
 const app = new cdk.App();
 
-// Get configuration from CDK context or environment variables
 const environmentName = app.node.tryGetContext('environment') || process.env.ENVIRONMENT_NAME || 'dev';
 const organizationName = app.node.tryGetContext('organization') || process.env.ORGANIZATION_NAME || 'MyOrganization';
 const enableEnterpriseFeatures = app.node.tryGetContext('enableEnterprise') === 'true' || 
@@ -303,7 +234,6 @@ const enableEnterpriseFeatures = app.node.tryGetContext('enableEnterprise') === 
 const enableDetailedLogging = app.node.tryGetContext('enableLogging') !== 'false' && 
                               process.env.ENABLE_DETAILED_LOGGING !== 'false';
 
-// Create the main stack
 const stack = new AmazonQDeveloperStack(app, 'AmazonQDeveloperStack', {
   stackName: `amazon-q-developer-${environmentName}`,
   description: 'Infrastructure for Amazon Q Developer AI coding assistant setup and enterprise management',
@@ -322,5 +252,4 @@ const stack = new AmazonQDeveloperStack(app, 'AmazonQDeveloperStack', {
   },
 });
 
-// Add synthesis validation
 app.synth();
