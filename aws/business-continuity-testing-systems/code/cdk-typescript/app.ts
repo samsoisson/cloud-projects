@@ -121,7 +121,6 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
     });
 
     // Add comprehensive policy for BC testing operations
-    // NOTE: Removed iam:PassRole to mitigate privilege escalation via PassRole.
     role.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -135,7 +134,8 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
         'cloudwatch:*',
         'sns:*',
         'logs:*',
-        'backup:*'
+        'backup:*',
+        'iam:PassRole'
       ],
       resources: ['*']
     }));

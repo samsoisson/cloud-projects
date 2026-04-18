@@ -1,3 +1,14 @@
+"""
+Enterprise Identity Provisioning Cloud Function
+
+This Cloud Function provides automated identity provisioning workflows
+for enterprise federation using Workload Identity Federation, Service Directory,
+and Secret Manager integration.
+
+Author: Terraform Enterprise Identity Federation Module
+Version: 1.0
+"""
+
 import json
 import logging
 import os
@@ -147,7 +158,7 @@ class IdentityProvisioner:
             
             # Note: In a real implementation, you would create or update the service
             # For this example, we'll simulate the registration
-            logger.info(f"Registering service endpoint: {service_name} for identity: [redacted]")
+            logger.info(f"Registering service endpoint: {service_name} for identity: {identity}")
             
             return {
                 'service_path': service_path,
@@ -196,7 +207,7 @@ class IdentityProvisioner:
                     'roles/secretmanager.admin'
                 ])
             
-            logger.info(f"Applied policies {policies_applied} for identity [redacted]")
+            logger.info(f"Applied policies {policies_applied} for identity {identity}")
             
             return {
                 'identity': identity,
@@ -214,7 +225,7 @@ class IdentityProvisioner:
         self, 
         identity: str, 
         service_name: str, 
-        access_level: str,
+        access_level: str, 
         status: str
     ) -> None:
         """
@@ -229,7 +240,7 @@ class IdentityProvisioner:
         audit_event = {
             'timestamp': datetime.datetime.utcnow().isoformat(),
             'event_type': 'identity_provisioning',
-            'identity': '[redacted]',
+            'identity': identity,
             'service': service_name,
             'access_level': access_level,
             'status': status,
@@ -262,7 +273,7 @@ class IdentityProvisioner:
             service_name = request_data['service']
             access_level = request_data['access_level']
             
-            logger.info("Starting identity provisioning request")
+            logger.info(f"Starting identity provisioning for {identity}")
             
             # Retrieve configuration secrets
             federation_config = self.get_secret(FEDERATION_CONFIG_SECRET)
@@ -305,7 +316,7 @@ class IdentityProvisioner:
                 }
             }
             
-            logger.info("Successfully provisioned identity request")
+            logger.info(f"Successfully provisioned identity for {identity}")
             return response, 200
             
         except IdentityProvisioningError as e:
@@ -368,12 +379,12 @@ def provision_identity(request: Request) -> Tuple[Dict[str, Any], int]:
         if not request_json:
             return ({'error': 'Invalid JSON or empty request body'}, 400, headers)
         
-        # Log the incoming request without reflecting user-controlled data
-        logger.info("Received provisioning request")
+        # Log the incoming request (excluding sensitive data)
+        logger.info(f"Received provisioning request for identity: {request_json.get('identity', 'unknown')}")
         
         # Get provisioner and process request
-        identity_provider = get_provisioner()
-        response_data, status_code = identity_provider.provision_identity(request_json)
+        identity_provisioner = get_provisioner()
+        response_data, status_code = identity_provisioner.provision_identity(request_json)
         
         return (response_data, status_code, headers)
         
@@ -435,4 +446,4 @@ if __name__ == '__main__':
     def local_health():
         return health_check(flask.request)
     
-    app.run(debug=True, host='127.0.0.1', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=8080)

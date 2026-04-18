@@ -9,7 +9,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 
 /**
  * AI-Powered Infrastructure Code Generation Stack
- *
+ * 
  * This stack creates an automated system that leverages Amazon Q Developer's AI capabilities
  * integrated with AWS Infrastructure Composer to generate, validate, and deploy infrastructure
  * code templates using S3 event triggers and Lambda functions.
@@ -76,9 +76,24 @@ export class QDeveloperInfrastructureStack extends cdk.Stack {
               effect: iam.Effect.ALLOW,
               actions: [
                 'cloudformation:ValidateTemplate',
+                'cloudformation:CreateStack',
                 'cloudformation:DescribeStacks',
                 'cloudformation:DescribeStackEvents',
+                'cloudformation:UpdateStack',
+                'cloudformation:DeleteStack',
                 'cloudformation:ListStacks',
+              ],
+              resources: ['*'],
+            }),
+            // IAM permissions for role management (required for CloudFormation operations)
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'iam:PassRole',
+                'iam:CreateRole',
+                'iam:AttachRolePolicy',
+                'iam:GetRole',
+                'iam:ListRoles',
               ],
               resources: ['*'],
             }),

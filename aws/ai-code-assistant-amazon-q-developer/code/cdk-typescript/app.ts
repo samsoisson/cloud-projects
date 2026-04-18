@@ -36,7 +36,7 @@ export interface AmazonQDeveloperStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for Amazon Q Developer infrastructure
- *
+ * 
  * This stack creates the necessary AWS infrastructure to support Amazon Q Developer
  * usage in an enterprise environment, including IAM roles, S3 buckets for artifacts,
  * and CloudWatch logging for monitoring and compliance.
@@ -53,7 +53,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
       environmentName = 'dev',
       enableDetailedLogging = true,
       organizationName = 'MyOrganization',
-      enableEnterpriseFeatures = false,
+      enableEnterpriseFeatures = false
     } = props;
 
     // Resource naming prefix for consistent naming
@@ -182,6 +182,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
           'codewhisperer:*',
           // IAM management for Q Developer users
           'iam:CreateRole',
+          'iam:AttachRolePolicy',
           'iam:DetachRolePolicy',
           'iam:UpdateRole',
           'iam:TagRole',
@@ -207,7 +208,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
     }
 
     // Apply consistent tags to all resources
-    const commonTags: Record<string, string> = {
+    const commonTags = {
       Environment: environmentName,
       Application: 'Amazon Q Developer',
       Organization: organizationName,
@@ -250,7 +251,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
         '1. Install Amazon Q extension in VS Code',
         '2. Authenticate using AWS Builder ID or IAM Identity Center',
         '3. Configure settings in VS Code preferences',
-        '4. Start coding with AI assistance!',
+        '4. Start coding with AI assistance!'
       ].join(' | '),
       description: 'Quick setup instructions for Amazon Q Developer',
     });
@@ -258,8 +259,7 @@ export class AmazonQDeveloperStack extends cdk.Stack {
     // Security and compliance outputs
     if (enableDetailedLogging) {
       new cdk.CfnOutput(this, 'ComplianceNote', {
-        value:
-          'CloudWatch logging enabled for compliance and monitoring. Review logs regularly for security and usage patterns.',
+        value: 'CloudWatch logging enabled for compliance and monitoring. Review logs regularly for security and usage patterns.',
         description: 'Compliance and monitoring information',
       });
     }
@@ -297,14 +297,11 @@ const app = new cdk.App();
 
 // Get configuration from CDK context or environment variables
 const environmentName = app.node.tryGetContext('environment') || process.env.ENVIRONMENT_NAME || 'dev';
-const organizationName =
-  app.node.tryGetContext('organization') || process.env.ORGANIZATION_NAME || 'MyOrganization';
-const enableEnterpriseFeatures =
-  app.node.tryGetContext('enableEnterprise') === 'true' ||
-  process.env.ENABLE_ENTERPRISE_FEATURES === 'true';
-const enableDetailedLogging =
-  app.node.tryGetContext('enableLogging') !== 'false' &&
-  process.env.ENABLE_DETAILED_LOGGING !== 'false';
+const organizationName = app.node.tryGetContext('organization') || process.env.ORGANIZATION_NAME || 'MyOrganization';
+const enableEnterpriseFeatures = app.node.tryGetContext('enableEnterprise') === 'true' || 
+                                  process.env.ENABLE_ENTERPRISE_FEATURES === 'true';
+const enableDetailedLogging = app.node.tryGetContext('enableLogging') !== 'false' && 
+                              process.env.ENABLE_DETAILED_LOGGING !== 'false';
 
 // Create the main stack
 const stack = new AmazonQDeveloperStack(app, 'AmazonQDeveloperStack', {
