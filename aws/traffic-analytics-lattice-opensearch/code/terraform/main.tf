@@ -85,6 +85,7 @@ resource "aws_opensearch_domain" "traffic_analytics" {
 
   domain_endpoint_options {
     enforce_https = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
   # Open access policy for demo purposes - restrict in production
@@ -284,9 +285,9 @@ resource "aws_kinesis_firehose_delivery_stream" "traffic_analytics" {
     }
 
     cloudwatch_logging_options {
-      enabled         = true
-      log_group_name  = aws_cloudwatch_log_group.firehose.name
-      log_stream_name = aws_cloudwatch_log_stream.firehose.name
+      enabled          = true
+      log_group_name   = aws_cloudwatch_log_group.firehose.name
+      log_stream_name  = aws_cloudwatch_log_stream.firehose.name
     }
   }
 
