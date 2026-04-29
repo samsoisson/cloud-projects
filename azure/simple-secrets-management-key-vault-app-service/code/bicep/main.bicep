@@ -18,11 +18,11 @@ param nodeVersion string = 'NODE:18-lts'
 
 @description('Sample database connection string (for demo purposes)')
 @secure()
-param databaseConnectionString string
+param databaseConnectionString string = 'Server=myserver.database.windows.net;Database=mydb;User=admin;Password=SecureP@ssw0rd123'
 
 @description('Sample external API key (for demo purposes)')
 @secure()
-param externalApiKey string
+param externalApiKey string = 'sk-1234567890abcdef1234567890abcdef'
 
 @description('Tags to apply to all resources')
 param tags object = {

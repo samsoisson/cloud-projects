@@ -82,8 +82,6 @@ resource openAIService 'Microsoft.CognitiveServices/accounts@2024-06-01-preview'
     apiProperties: {
       statisticsEnabled: true
     }
-    // Enforce modern TLS
-    minimumTlsVersion: '1.2'
   }
   identity: {
     type: 'SystemAssigned'
@@ -139,8 +137,6 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
       defaultAction: 'Allow'
     }
     supportsHttpsTrafficOnly: true
-    // Enforce modern TLS
-    minimumTlsVersion: 'TLS1_2'
   }
 }
 
@@ -191,8 +187,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
       defaultAction: 'Allow'
       bypass: 'AzureServices'
     }
-    // Enforce modern TLS
-    minimumTlsVersion: '1.2'
   }
 }
 
@@ -231,8 +225,6 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' =
     adminUserEnabled: true
     publicNetworkAccess: 'Enabled'
     networkRuleBypassOptions: 'AzureServices'
-    // Enforce modern TLS
-    minimumTlsVersion: 'TLS1_2'
   }
 }
 

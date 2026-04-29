@@ -57,7 +57,7 @@ class ServicePerformanceCostAnalyticsStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # Create IAM role for Lambda functions with appropriate permissions
+        # Create IAM role for Lambda functions with comprehensive permissions
         lambda_role = iam.Role(
             self,
             "LambdaAnalyticsRole",
@@ -91,7 +91,8 @@ class ServicePerformanceCostAnalyticsStack(Stack):
                                 "vpc-lattice:GetService",
                                 "vpc-lattice:GetServiceNetwork",
                                 "vpc-lattice:ListServices",
-                                "vpc-lattice:ListServiceNetworks"
+                                "vpc-lattice:ListServiceNetworks",
+                                "lambda:InvokeFunction"
                             ],
                             resources=["*"]
                         )
@@ -473,18 +474,6 @@ def lambda_handler(event, context):
             timeout=Duration.seconds(180),
             memory_size=256,
             description="Orchestrates performance and cost analysis reporting"
-        )
-
-        # Restrict Lambda invoke permissions to only the functions this stack needs
-        lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["lambda:InvokeFunction"],
-                resources=[
-                    performance_analyzer.function_arn,
-                    cost_correlator.function_arn
-                ],
-            )
         )
 
         # Create EventBridge rule for scheduled analytics

@@ -371,6 +371,7 @@ export class AdvancedBlueGreenDeploymentStack extends cdk.Stack {
                 'codedeploy:PutLifecycleEventHookExecutionStatus',
                 'ecs:DescribeServices',
                 'ecs:DescribeTasks',
+                'lambda:InvokeFunction',
                 'cloudwatch:PutMetricData',
                 'logs:CreateLogGroup',
                 'logs:CreateLogStream',

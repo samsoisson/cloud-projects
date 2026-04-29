@@ -82,72 +82,26 @@ class BusinessContinuityTestingStack(Stack):
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                # SSM Automation / RunCommand
-                                "ssm:StartAutomationExecution",
-                                "ssm:DescribeAutomationExecutions",
-                                "ssm:GetAutomationExecution",
-                                "ssm:ListCommandInvocations",
-                                "ssm:SendCommand",
-                                "ssm:ListDocuments",
-                                "ssm:GetDocument",
-                                "ssm:DescribeDocument",
-                                # Backup validation / restore job orchestration
-                                "backup:StartRestoreJob",
-                                "backup:DescribeRestoreJob",
-                                "backup:ListRecoveryPointsByResource",
-                                "backup:ListRecoveryPointsByBackupVault",
-                                # EC2 termination for test cleanup
-                                "ec2:TerminateInstances",
-                                "ec2:DescribeInstances",
-                                # RDS restore / cleanup for test DB
-                                "rds:RestoreDBInstanceFromDBSnapshot",
-                                "rds:DescribeDBInstances",
-                                "rds:DeleteDBInstance",
-                                # S3 write for results
-                                "s3:PutObject",
-                                "s3:AbortMultipartUpload",
-                                "s3:ListBucketMultipartUploads",
-                                "s3:ListBucket",
-                                # Lambda invoke not required; keep minimal
-                                # CloudWatch / logs for basic execution
-                                "logs:CreateLogGroup",
-                                "logs:CreateLogStream",
-                                "logs:PutLogEvents",
-                                # SNS publish for alerts
-                                "sns:Publish",
-                                # Route53 failover simulation (restricted to hosted zone resources)
-                                "route53:ChangeResourceRecordSets",
-                                "route53:GetHostedZone",
-                                "route53:ListResourceRecordSets",
-                                # EventBridge/States not required for this role; keep minimal
-                                # IAM pass role is restricted below
+                                "ssm:*",
+                                "ec2:*",
+                                "rds:*",
+                                "s3:*",
+                                "lambda:*",
+                                "states:*",
+                                "events:*",
+                                "cloudwatch:*",
+                                "sns:*",
+                                "logs:*",
+                                "backup:*",
                                 "iam:PassRole",
+                                "route53:*"
                             ],
-                            resources=[
-                                # S3 results bucket (restrict to this bucket only)
-                                self.results_bucket.bucket_arn,
-                                f"{self.results_bucket.bucket_arn}/*",
-                                # SNS topic (restrict to this topic only)
-                                # Note: topic ARN is not available here yet; use wildcard is avoided by splitting policy.
-                                # We'll restrict PassRole below and keep other resources minimal.
-                                "*",
-                            ]
-                        ),
-                        # Restrict iam:PassRole to only the automation role itself to prevent privilege escalation.
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=["iam:PassRole"],
-                            resources=[cdk.Token.as_string(self.automation_role_arn_placeholder())],
-                        ),
+                            resources=["*"]
+                        )
                     ]
                 )
             }
         )
-
-    def automation_role_arn_placeholder(self) -> str:
-        # Helper to avoid referencing role_arn before role exists in inline policy.
-        # This will be replaced by the actual role ARN at synthesis time.
-        return "${AWS::Partition}:iam::${AWS::AccountId}:role/BCTestingRole-" + self.project_id
 
     def _create_s3_bucket(self) -> None:
         """Create S3 bucket for test results and reports."""
@@ -181,26 +135,6 @@ class BusinessContinuityTestingStack(Stack):
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL
         )
 
-        # Now that bucket exists, tighten the role policy to bucket-only for S3 writes.
-        # This avoids broad "s3:*" on "*".
-        self.automation_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListBucketMultipartUploads"],
-                resources=[f"{self.results_bucket.bucket_arn}/test-results/*", f"{self.results_bucket.bucket_arn}/compliance-reports/*"],
-            )
-        )
-        self.automation_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["s3:ListBucket"],
-                resources=[self.results_bucket.bucket_arn],
-                conditions={
-                    "StringLike": {"s3:prefix": ["test-results/*", "compliance-reports/*"]}
-                },
-            )
-        )
-
     def _create_sns_topic(self) -> None:
         """Create SNS topic for BC testing alerts."""
         
@@ -214,15 +148,6 @@ class BusinessContinuityTestingStack(Stack):
         # Add email subscription
         self.alert_topic.add_subscription(
             subscriptions.EmailSubscription(self.notification_email)
-        )
-
-        # Restrict SNS publish to this topic only (avoid sns:* on "*")
-        self.automation_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["sns:Publish"],
-                resources=[self.alert_topic.topic_arn],
-            )
         )
 
     def _create_automation_documents(self) -> None:
