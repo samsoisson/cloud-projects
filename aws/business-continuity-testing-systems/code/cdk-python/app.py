@@ -82,21 +82,52 @@ class BusinessContinuityTestingStack(Stack):
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                "ssm:*",
-                                "ec2:*",
-                                "rds:*",
-                                "s3:*",
-                                "lambda:*",
-                                "states:*",
-                                "events:*",
-                                "cloudwatch:*",
-                                "sns:*",
-                                "logs:*",
-                                "backup:*",
-                                "iam:PassRole",
-                                "route53:*"
+                                # Read-only / limited actions to reduce privilege escalation risk
+                                "ssm:Describe*",
+                                "ssm:Get*",
+                                "ssm:List*",
+                                "ssm:StartAutomationExecution",
+                                "ssm:SendCommand",
+                                "ssm:ListCommandInvocations",
+                                "ec2:Describe*",
+                                "rds:Describe*",
+                                "rds:RestoreDBInstanceFromDBSnapshot",
+                                "rds:DeleteDBInstance",
+                                "s3:PutObject",
+                                "s3:AbortMultipartUpload",
+                                "s3:ListBucket",
+                                "s3:GetBucketLocation",
+                                "lambda:InvokeFunction",
+                                "events:PutTargets",
+                                "events:PutRule",
+                                "events:DescribeRule",
+                                "cloudwatch:PutMetricData",
+                                "sns:Publish",
+                                "logs:CreateLogGroup",
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents",
+                                "backup:StartRestoreJob",
+                                "backup:DescribeRestoreJob",
+                                "backup:ListRecoveryPointsByResource",
+                                "route53:ChangeResourceRecordSets",
+                                "iam:PassRole"
                             ],
-                            resources=["*"]
+                            resources=[
+                                # Restrict to the account; avoid broad "*" to mitigate privilege escalation
+                                f"arn:aws:iam::{cdk.Aws.ACCOUNT_ID}:role/*",
+                                f"arn:aws:ssm:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:automation-definition/*",
+                                f"arn:aws:ec2:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:instance/*",
+                                f"arn:aws:rds:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:db:*",
+                                f"arn:aws:s3:::{cdk.Aws.STACK_NAME}*",
+                                f"arn:aws:s3:::{cdk.Aws.STACK_NAME}*/*",
+                                f"arn:aws:lambda:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:function:*",
+                                f"arn:aws:events:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:rule/*",
+                                f"arn:aws:cloudwatch:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:metric/*",
+                                f"arn:aws:sns:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:*",
+                                f"arn:aws:logs:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:log-group:*",
+                                f"arn:aws:backup:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:recovery-point:*",
+                                f"arn:aws:route53:::hostedzone/*"
+                            ]
                         )
                     ]
                 )

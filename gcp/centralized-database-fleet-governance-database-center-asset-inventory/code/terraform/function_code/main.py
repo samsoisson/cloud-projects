@@ -447,4 +447,5 @@ if __name__ == '__main__':
         request = flask.request
         return generate_compliance_report(request)
     
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    # Bind only to localhost to avoid exposing the dev server on all interfaces
+    app.run(debug=True, host='127.0.0.1', port=8080)

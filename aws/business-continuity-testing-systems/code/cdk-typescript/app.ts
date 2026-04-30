@@ -18,17 +18,17 @@ interface BusinessContinuityTestingStackProps extends cdk.StackProps {
    * Email address for SNS notifications
    */
   readonly notificationEmail?: string;
-  
+
   /**
    * Project identifier for resource naming
    */
   readonly projectId?: string;
-  
+
   /**
    * Environment name (dev, staging, prod)
    */
   readonly environment?: string;
-  
+
   /**
    * Enable automated scheduling of tests
    */
@@ -115,30 +115,30 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
         new iam.ServicePrincipal('states.amazonaws.com'),
         new iam.ServicePrincipal('events.amazonaws.com')
       ),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
-      ]
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')]
     });
 
     // Add comprehensive policy for BC testing operations
-    role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'ssm:*',
-        'ec2:*',
-        'rds:*',
-        's3:*',
-        'lambda:*',
-        'states:*',
-        'events:*',
-        'cloudwatch:*',
-        'sns:*',
-        'logs:*',
-        'backup:*',
-        'iam:PassRole'
-      ],
-      resources: ['*']
-    }));
+    // NOTE: Removed iam:PassRole to mitigate privilege escalation via PassRole.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'ssm:*',
+          'ec2:*',
+          'rds:*',
+          's3:*',
+          'lambda:*',
+          'states:*',
+          'events:*',
+          'cloudwatch:*',
+          'sns:*',
+          'logs:*',
+          'backup:*'
+        ],
+        resources: ['*']
+      })
+    );
 
     // Apply tags
     Object.entries(tags).forEach(([key, value]) => {
@@ -219,8 +219,11 @@ export class BusinessContinuityTestingStack extends cdk.Stack {
   private createAutomationDocuments(
     projectId: string,
     tags: Record<string, string>
-  ): { backupValidation: ssm.CfnDocument; databaseRecovery: ssm.CfnDocument; applicationFailover: ssm.CfnDocument } {
-    
+  ): {
+    backupValidation: ssm.CfnDocument;
+    databaseRecovery: ssm.CfnDocument;
+    applicationFailover: ssm.CfnDocument;
+  } {
     // Backup Validation Automation Document
     const backupValidationDocument = new ssm.CfnDocument(this, 'BackupValidationDocument', {
       documentType: 'Automation',
@@ -495,7 +498,6 @@ def check_application_health(events, context):
     snsTopic: sns.Topic,
     tags: Record<string, string>
   ): { orchestrator: lambda.Function; compliance: lambda.Function; manual: lambda.Function } {
-
     // Test Orchestrator Lambda Function
     const orchestratorFunction = new lambda.Function(this, 'BCTestOrchestratorFunction', {
       functionName: `bc-test-orchestrator-${projectId}`,
@@ -844,7 +846,7 @@ def execute_application_test(ssm):
 
     // Apply tags to all Lambda functions
     const functions = [orchestratorFunction, complianceFunction, manualTestFunction];
-    functions.forEach(func => {
+    functions.forEach((func) => {
       Object.entries(tags).forEach(([key, value]) => {
         cdk.Tags.of(func).add(key, value);
       });
@@ -872,9 +874,11 @@ def execute_application_test(ssm):
       schedule: events.Schedule.rate(cdk.Duration.days(1))
     });
 
-    dailyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
-      event: events.RuleTargetInput.fromObject({ testType: 'daily' })
-    }));
+    dailyRule.addTarget(
+      new targets.LambdaFunction(orchestratorFunction, {
+        event: events.RuleTargetInput.fromObject({ testType: 'daily' })
+      })
+    );
 
     // Weekly comprehensive tests
     const weeklyRule = new events.Rule(this, 'BCWeeklyTestsRule', {
@@ -883,9 +887,11 @@ def execute_application_test(ssm):
       schedule: events.Schedule.cron({ hour: '2', minute: '0', weekDay: 'SUN' })
     });
 
-    weeklyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
-      event: events.RuleTargetInput.fromObject({ testType: 'weekly' })
-    }));
+    weeklyRule.addTarget(
+      new targets.LambdaFunction(orchestratorFunction, {
+        event: events.RuleTargetInput.fromObject({ testType: 'weekly' })
+      })
+    );
 
     // Monthly full DR tests
     const monthlyRule = new events.Rule(this, 'BCMonthlyTestsRule', {
@@ -894,13 +900,15 @@ def execute_application_test(ssm):
       schedule: events.Schedule.cron({ hour: '1', minute: '0', day: '1' })
     });
 
-    monthlyRule.addTarget(new targets.LambdaFunction(orchestratorFunction, {
-      event: events.RuleTargetInput.fromObject({ testType: 'monthly' })
-    }));
+    monthlyRule.addTarget(
+      new targets.LambdaFunction(orchestratorFunction, {
+        event: events.RuleTargetInput.fromObject({ testType: 'monthly' })
+      })
+    );
 
     // Apply tags to rules
     const rules = [dailyRule, weeklyRule, monthlyRule];
-    rules.forEach(rule => {
+    rules.forEach((rule) => {
       Object.entries(tags).forEach(([key, value]) => {
         cdk.Tags.of(rule).add(key, value);
       });
@@ -913,7 +921,11 @@ def execute_application_test(ssm):
   private createCloudWatchDashboard(
     projectId: string,
     lambdaFunctions: { orchestrator: lambda.Function; compliance: lambda.Function; manual: lambda.Function },
-    automationDocuments: { backupValidation: ssm.CfnDocument; databaseRecovery: ssm.CfnDocument; applicationFailover: ssm.CfnDocument },
+    automationDocuments: {
+      backupValidation: ssm.CfnDocument;
+      databaseRecovery: ssm.CfnDocument;
+      applicationFailover: ssm.CfnDocument;
+    },
     tags: Record<string, string>
   ): cloudwatch.Dashboard {
     const dashboard = new cloudwatch.Dashboard(this, 'BCTestingDashboard', {
@@ -963,14 +975,13 @@ def execute_application_test(ssm):
           new cloudwatch.LogQueryWidget({
             title: 'Recent BC Test Executions',
             logGroups: [
-              logs.LogGroup.fromLogGroupName(this, 'OrchestratorLogGroup', `/aws/lambda/${lambdaFunctions.orchestrator.functionName}`)
+              logs.LogGroup.fromLogGroupName(
+                this,
+                'OrchestratorLogGroup',
+                `/aws/lambda/${lambdaFunctions.orchestrator.functionName}`
+              )
             ],
-            queryLines: [
-              'fields @timestamp, @message',
-              'filter @message like /Test/',
-              'sort @timestamp desc',
-              'limit 20'
-            ],
+            queryLines: ['fields @timestamp, @message', 'filter @message like /Test/', 'sort @timestamp desc', 'limit 20'],
             width: 24,
             height: 6
           })
