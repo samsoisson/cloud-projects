@@ -39,11 +39,11 @@ export interface ServiceCatalogPortfolioStackProps extends cdk.StackProps {
 
 /**
  * CDK Stack for Service Catalog Portfolio with CloudFormation Templates
- *
+ * 
  * This stack creates a Service Catalog portfolio containing two products:
  * 1. S3 Bucket Product - Secure S3 bucket with encryption and versioning
  * 2. Lambda Function Product - Lambda function with IAM role and logging
- *
+ * 
  * The implementation includes:
  * - CloudFormation templates stored in S3
  * - Service Catalog portfolio and products
@@ -149,7 +149,8 @@ export class ServiceCatalogPortfolioStack extends cdk.Stack {
         's3:PutBucketVersioning',
         's3:PutBucketPublicAccessBlock',
         's3:PutBucketTagging',
-        // Lambda permissions (removed lambda:CreateFunction to mitigate privilege escalation)
+        // Lambda permissions
+        'lambda:CreateFunction',
         'lambda:DeleteFunction',
         'lambda:UpdateFunctionCode',
         'lambda:UpdateFunctionConfiguration',

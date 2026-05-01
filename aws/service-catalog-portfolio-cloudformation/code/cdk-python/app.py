@@ -34,7 +34,7 @@ class ServiceCatalogPortfolioStack(Stack):
 
         # Generate unique suffix for resource names
         unique_suffix = self.node.addr[-8:].lower()
-
+        
         # Create S3 bucket for CloudFormation templates
         template_bucket = s3.Bucket(
             self, "TemplateBucket",
@@ -126,14 +126,14 @@ class ServiceCatalogPortfolioStack(Stack):
     def _deploy_templates(self, bucket: s3.Bucket, suffix: str) -> None:
         """
         Deploy CloudFormation templates to S3 bucket for Service Catalog products.
-
+        
         Args:
             bucket: S3 bucket to store templates
             suffix: Unique suffix for resource naming
         """
         # S3 Bucket CloudFormation Template
         s3_template = self._get_s3_template()
-
+        
         # Lambda Function CloudFormation Template
         lambda_template = self._get_lambda_template()
 
@@ -150,10 +150,10 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_launch_role(self, suffix: str) -> iam.Role:
         """
         Create IAM role for Service Catalog launch constraints.
-
+        
         Args:
             suffix: Unique suffix for resource naming
-
+            
         Returns:
             IAM role for launch constraints
         """
@@ -164,16 +164,9 @@ class ServiceCatalogPortfolioStack(Stack):
             description="IAM role for Service Catalog product launch constraints",
         )
 
-        # Restrict permissions to only the resources created/managed by the
-        # provided CloudFormation templates (S3 bucket and Lambda function).
-        # Avoid wildcard resource escalation.
-        s3_bucket_arn_pattern = f"arn:aws:s3:::*"
-        lambda_function_arn_pattern = f"arn:aws:lambda:{self.region}:{self.account}:function:*"
-        lambda_role_arn_pattern = f"arn:aws:iam::{self.account}:role/*"
-
+        # Create inline policy with necessary permissions
         launch_policy = iam.PolicyDocument(
             statements=[
-                # S3 bucket operations (scoped to S3 bucket ARNs; no "*" resources)
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
                     actions=[
@@ -185,13 +178,6 @@ class ServiceCatalogPortfolioStack(Stack):
                         "s3:PutBucketTagging",
                         "s3:GetBucketLocation",
                         "s3:ListBucket",
-                    ],
-                    resources=[s3_bucket_arn_pattern, f"{s3_bucket_arn_pattern}/*"],
-                ),
-                # Lambda function operations (scoped to functions)
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=[
                         "lambda:CreateFunction",
                         "lambda:DeleteFunction",
                         "lambda:UpdateFunctionCode",
@@ -200,13 +186,6 @@ class ServiceCatalogPortfolioStack(Stack):
                         "lambda:UntagResource",
                         "lambda:GetFunction",
                         "lambda:ListTags",
-                    ],
-                    resources=[lambda_function_arn_pattern],
-                ),
-                # IAM role operations for the execution role created by the template
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=[
                         "iam:CreateRole",
                         "iam:DeleteRole",
                         "iam:AttachRolePolicy",
@@ -218,8 +197,8 @@ class ServiceCatalogPortfolioStack(Stack):
                         "iam:ListRolePolicies",
                         "iam:ListAttachedRolePolicies",
                     ],
-                    resources=[lambda_role_arn_pattern],
-                ),
+                    resources=["*"],
+                )
             ]
         )
 
@@ -235,11 +214,11 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_s3_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for S3 bucket deployment.
-
+        
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-
+            
         Returns:
             Service Catalog CloudFormation product
         """
@@ -262,11 +241,11 @@ class ServiceCatalogPortfolioStack(Stack):
     def _create_lambda_product(self, bucket: s3.Bucket, suffix: str) -> servicecatalog.CloudFormationProduct:
         """
         Create Service Catalog product for Lambda function deployment.
-
+        
         Args:
             bucket: S3 bucket containing CloudFormation templates
             suffix: Unique suffix for resource naming
-
+            
         Returns:
             Service Catalog CloudFormation product
         """
@@ -289,7 +268,7 @@ class ServiceCatalogPortfolioStack(Stack):
     def _grant_portfolio_access(self, portfolio: servicecatalog.Portfolio) -> None:
         """
         Grant portfolio access to the current AWS account root.
-
+        
         Args:
             portfolio: Service Catalog portfolio
         """
@@ -305,7 +284,7 @@ class ServiceCatalogPortfolioStack(Stack):
     def _get_s3_template(self) -> str:
         """
         Get S3 bucket CloudFormation template content.
-
+        
         Returns:
             CloudFormation template as YAML string
         """
@@ -358,7 +337,7 @@ Outputs:
     def _get_lambda_template(self) -> str:
         """
         Get Lambda function CloudFormation template content.
-
+        
         Returns:
             CloudFormation template as YAML string
         """
